@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, Fragment } from "react";
 import { supabase } from "@/lib/supabase";
 import {
   Menu,
@@ -20,7 +20,14 @@ import {
   CheckCircle,
   XCircle,
   Eye,
-  AlertCircle
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
+  ClipboardList,
+  Calendar,
+  Save,
+  Check,
+  X
 } from "lucide-react";
 
 interface AppUser {
@@ -35,6 +42,30 @@ interface AppUser {
   documento_url?: string;
   created_at?: string;
 }
+
+interface ChecklistQuestion {
+  id: string;
+  checklist_type: string;
+  question_text: string;
+  expected_answer: string;
+}
+
+const MANDATORY_DOCS = [
+  "Cédula Identidad",
+  "Licencia Municipal",
+  "Examen Ocupacional",
+  "Certificado 1",
+  "Certificado 2"
+];
+
+const FAENAS = [
+  "SG",
+  "DMH",
+  "Subterranea",
+  "Escondida",
+  "Centinela",
+  "Spence"
+];
 
 export default function HomePage() {
   // Login State
@@ -54,6 +85,19 @@ export default function HomePage() {
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   
+  // Row Expansion State
+  const [expandedUserIds, setExpandedUserIds] = useState<string[]>([]);
+  const [userDocsMap, setUserDocsMap] = useState<Record<string, any[]>>({});
+  const [userPassesMap, setUserPassesMap] = useState<Record<string, any[]>>({});
+  const [loadingDetails, setLoadingDetails] = useState<Record<string, boolean>>({});
+
+  // Checklists Tab State
+  const [checklistQuestions, setChecklistQuestions] = useState<ChecklistQuestion[]>([]);
+  const [loadingChecklists, setLoadingChecklists] = useState(true);
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
+  const [editQuestionText, setEditQuestionText] = useState("");
+  const [editExpectedAnswer, setEditExpectedAnswer] = useState("si");
+
   // Modales State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -92,9 +136,29 @@ export default function HomePage() {
     }
   };
 
+  // Load checklist questions from Supabase
+  const fetchChecklistQuestions = async () => {
+    setLoadingChecklists(true);
+    try {
+      const { data, error } = await supabase
+        .from("checklist_questions")
+        .select("*")
+        .order("checklist_type", { ascending: true })
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+      setChecklistQuestions(data || []);
+    } catch (err: any) {
+      console.error("Error fetching checklists:", err.message);
+    } finally {
+      setLoadingChecklists(false);
+    }
+  };
+
   useEffect(() => {
     if (isLoggedIn) {
       fetchUsers();
+      fetchChecklistQuestions();
     }
   }, [isLoggedIn]);
 
@@ -140,6 +204,43 @@ export default function HomePage() {
     setCurrentAdmin(null);
     setLoginUsername("");
     setLoginPassword("");
+  };
+
+  // Toggle Row Expansion
+  const toggleRow = async (userId: string) => {
+    const isExpanded = expandedUserIds.includes(userId);
+    if (isExpanded) {
+      setExpandedUserIds(expandedUserIds.filter((id) => id !== userId));
+      return;
+    }
+
+    setExpandedUserIds([...expandedUserIds, userId]);
+
+    // Fetch details on demand if not fetched yet
+    if (!userDocsMap[userId] || !userPassesMap[userId]) {
+      setLoadingDetails((prev) => ({ ...prev, [userId]: true }));
+      try {
+        const { data: docs, error: errorDocs } = await supabase
+          .from("user_documents")
+          .select("*")
+          .eq("user_id", userId);
+
+        const { data: passes, error: errorPasses } = await supabase
+          .from("user_passes")
+          .select("*")
+          .eq("user_id", userId);
+
+        if (errorDocs) throw errorDocs;
+        if (errorPasses) throw errorPasses;
+
+        setUserDocsMap((prev) => ({ ...prev, [userId]: docs || [] }));
+        setUserPassesMap((prev) => ({ ...prev, [userId]: passes || [] }));
+      } catch (err: any) {
+        console.error("Error loading user documents/passes:", err.message);
+      } finally {
+        setLoadingDetails((prev) => ({ ...prev, [userId]: false }));
+      }
+    }
   };
 
   // Toggle user active status
@@ -307,6 +408,39 @@ export default function HomePage() {
     setIsDocModalOpen(true);
   };
 
+  // Start Editing Question
+  const startEditQuestion = (q: ChecklistQuestion) => {
+    setEditingQuestionId(q.id);
+    setEditQuestionText(q.question_text);
+    setEditExpectedAnswer(q.expected_answer);
+  };
+
+  // Save Checklist Question
+  const handleSaveQuestion = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from("checklist_questions")
+        .update({
+          question_text: editQuestionText.trim(),
+          expected_answer: editExpectedAnswer
+        })
+        .eq("id", id);
+
+      if (error) throw error;
+
+      setChecklistQuestions(
+        checklistQuestions.map((q) =>
+          q.id === id
+            ? { ...q, question_text: editQuestionText.trim(), expected_answer: editExpectedAnswer }
+            : q
+        )
+      );
+      setEditingQuestionId(null);
+    } catch (err: any) {
+      alert("Error al guardar pregunta: " + err.message);
+    }
+  };
+
   // Filtered Users List
   const filteredUsers = users.filter(
     (u) =>
@@ -314,6 +448,25 @@ export default function HomePage() {
       u.rut.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.username.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Helper: check if a date is expired
+  const isDateExpired = (dateString?: string) => {
+    if (!dateString) return true;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const expDate = new Date(dateString);
+    return expDate < today;
+  };
+
+  // Helper: format date to DD/MM/YYYY
+  const formatDateString = (dateString?: string) => {
+    if (!dateString) return "No registrado";
+    const date = new Date(dateString);
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const year = date.getUTCFullYear();
+    return `${day}/${month}/${year}`;
+  };
 
   // Render Login page if not authenticated
   if (!isLoggedIn) {
@@ -441,6 +594,18 @@ export default function HomePage() {
           </button>
 
           <button
+            onClick={() => setActiveTab("checklists")}
+            className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+              activeTab === "checklists"
+                ? "bg-blue-600 text-white shadow"
+                : "text-slate-400 hover:bg-slate-800 hover:text-white"
+            }`}
+          >
+            <ClipboardList className="h-5 w-5 shrink-0" />
+            {isSidebarExpanded && <span>Gestión de Encuestas</span>}
+          </button>
+
+          <button
             onClick={() => setActiveTab("dashboard")}
             className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
               activeTab === "dashboard"
@@ -490,14 +655,18 @@ export default function HomePage() {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="flex-1 flex flex-col overflow-hidden text-slate-700">
         {/* Top Navbar */}
         <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-8 shadow-sm">
           <h1 className="text-xl font-bold text-slate-800">
-            {activeTab === "users" ? "Gestión de Usuarios APK" : "Estadísticas y Monitoreo"}
+            {activeTab === "users"
+              ? "Gestión de Usuarios APK"
+              : activeTab === "checklists"
+              ? "Configuración de Encuestas / Checklists"
+              : "Estadísticas y Monitoreo"}
           </h1>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-slate-500">
+            <span className="text-sm text-slate-500 font-medium">
               Conectado a: <strong className="text-blue-600">Supabase</strong>
             </span>
           </div>
@@ -537,7 +706,7 @@ export default function HomePage() {
                 {loadingUsers ? (
                   <div className="flex flex-col items-center justify-center py-20 gap-3">
                     <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600"></div>
-                    <span className="text-sm text-slate-500 font-medium">Cargando usuarios desde Supabase...</span>
+                    <span className="text-sm text-slate-500 font-medium">Cargando usuarios...</span>
                   </div>
                 ) : filteredUsers.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center px-4">
@@ -552,6 +721,7 @@ export default function HomePage() {
                     <table className="w-full border-collapse text-left text-sm text-slate-600">
                       <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-200 font-semibold">
                         <tr>
+                          <th className="px-6 py-4 w-10"></th>
                           <th className="px-6 py-4">Nombre / RUT</th>
                           <th className="px-6 py-4">Cargo</th>
                           <th className="px-6 py-4">Usuario APK</th>
@@ -562,86 +732,348 @@ export default function HomePage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {filteredUsers.map((user) => (
-                          <tr key={user.id} className="hover:bg-slate-50 transition-colors">
-                            <td className="px-6 py-4">
-                              <div className="font-bold text-slate-800">{user.nombre}</div>
-                              <div className="text-xs text-slate-400 font-medium">RUT: {user.rut}</div>
-                            </td>
-                            <td className="px-6 py-4 font-medium text-slate-700">{user.cargo}</td>
-                            <td className="px-6 py-4 font-mono font-medium text-slate-600">{user.username}</td>
-                            <td className="px-6 py-4">
-                              <span
-                                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                                  user.tipo_usuario === "admin"
-                                    ? "bg-purple-100 text-purple-700"
-                                    : "bg-blue-100 text-blue-700"
+                        {filteredUsers.map((user) => {
+                          const isExpanded = expandedUserIds.includes(user.id);
+                          return (
+                            <Fragment key={user.id}>
+                              {/* Row structure */}
+                              <tr
+                                onClick={() => toggleRow(user.id)}
+                                className={`cursor-pointer transition-colors ${
+                                  isExpanded ? "bg-slate-50/70" : "hover:bg-slate-50"
                                 }`}
                               >
-                                {user.tipo_usuario === "admin" ? "Admin" : "Operador"}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-center">
-                              <button
-                                onClick={() => openDocModal(user)}
-                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
-                                  user.documento_url
-                                    ? "border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
-                                    : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
-                                }`}
-                              >
-                                <FileText className="h-4 w-4" />
-                                {user.documento_url ? "Ver Doc" : "Asociar"}
-                              </button>
-                            </td>
-                            <td className="px-6 py-4 text-center">
-                              <button
-                                onClick={() => toggleUserStatus(user)}
-                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
-                                  user.habilitado
-                                    ? "border-green-200 bg-green-50 text-green-700 hover:border-green-300"
-                                    : "border-red-200 bg-red-50 text-red-700 hover:border-red-300"
-                                }`}
-                                title={user.habilitado ? "Bloquear Usuario" : "Habilitar Usuario"}
-                              >
-                                {user.habilitado ? (
-                                  <>
-                                    <Unlock className="h-3.5 w-3.5" />
-                                    <span>Habilitado</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Lock className="h-3.5 w-3.5" />
-                                    <span>Bloqueado</span>
-                                  </>
-                                )}
-                              </button>
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                              <div className="flex justify-end gap-3">
-                                <button
-                                  onClick={() => openEditModal(user)}
-                                  className="text-slate-400 hover:text-blue-600 transition-colors"
-                                  title="Editar"
-                                >
-                                  <Edit2 className="h-4.5 w-4.5" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteUser(user.id)}
-                                  className="text-slate-400 hover:text-red-600 transition-colors"
-                                  title="Eliminar"
-                                >
-                                  <Trash2 className="h-4.5 w-4.5" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
+                                <td className="px-6 py-4 text-slate-400">
+                                  {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="font-bold text-slate-800">{user.nombre}</div>
+                                  <div className="text-xs text-slate-400 font-medium">RUT: {user.rut}</div>
+                                </td>
+                                <td className="px-6 py-4 font-medium text-slate-700">{user.cargo}</td>
+                                <td className="px-6 py-4 font-mono font-medium text-slate-600">{user.username}</td>
+                                <td className="px-6 py-4">
+                                  <span
+                                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                      user.tipo_usuario === "admin"
+                                        ? "bg-purple-100 text-purple-700"
+                                        : "bg-blue-100 text-blue-700"
+                                    }`}
+                                  >
+                                    {user.tipo_usuario === "admin" ? "Admin" : "Chofer"}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => openDocModal(user)}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                                      user.documento_url
+                                        ? "border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
+                                        : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+                                    }`}
+                                  >
+                                    <FileText className="h-4 w-4" />
+                                    {user.documento_url ? "Ver Contrato" : "Asociar"}
+                                  </button>
+                                </td>
+                                <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => toggleUserStatus(user)}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                                      user.habilitado
+                                        ? "border-green-200 bg-green-50 text-green-700 hover:border-green-300"
+                                        : "border-red-200 bg-red-50 text-red-700 hover:border-red-300"
+                                    }`}
+                                    title={user.habilitado ? "Bloquear Usuario" : "Habilitar Usuario"}
+                                  >
+                                    {user.habilitado ? (
+                                      <>
+                                        <Unlock className="h-3.5 w-3.5" />
+                                        <span>Habilitado</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Lock className="h-3.5 w-3.5" />
+                                        <span>Bloqueado</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </td>
+                                <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex justify-end gap-3">
+                                    <button
+                                      onClick={() => openEditModal(user)}
+                                      className="text-slate-400 hover:text-blue-600 transition-colors"
+                                      title="Editar"
+                                    >
+                                      <Edit2 className="h-4.5 w-4.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteUser(user.id)}
+                                      className="text-slate-400 hover:text-red-600 transition-colors"
+                                      title="Eliminar"
+                                    >
+                                      <Trash2 className="h-4.5 w-4.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+
+                              {/* Expanded Row Content */}
+                              {isExpanded && (
+                                <tr className="bg-slate-50/40 border-l-4 border-l-blue-500">
+                                  <td colSpan={8} className="px-10 py-6 border-b border-slate-200">
+                                    {loadingDetails[user.id] ? (
+                                      <div className="flex items-center gap-2 text-sm text-slate-500">
+                                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-500"></div>
+                                        Cargando documentos y pases...
+                                      </div>
+                                    ) : (
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                        {/* Worker Documents */}
+                                        <div>
+                                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+                                            <FileText className="h-4 w-4 text-blue-500" />
+                                            Documentos del Trabajador (Obligatorios)
+                                          </h4>
+                                          <div className="space-y-2">
+                                            {MANDATORY_DOCS.map((docName) => {
+                                              const record = (userDocsMap[user.id] || []).find(
+                                                (d) => d.document_name === docName
+                                              );
+                                              const expired = isDateExpired(record?.fecha_vencimiento);
+                                              return (
+                                                <div
+                                                  key={docName}
+                                                  className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 bg-white shadow-sm"
+                                                >
+                                                  <span className="text-sm font-semibold text-slate-700">{docName}</span>
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="text-xs text-slate-500 flex items-center gap-1 font-mono">
+                                                      <Calendar className="h-3.5 w-3.5" />
+                                                      {formatDateString(record?.fecha_vencimiento)}
+                                                    </span>
+                                                    {record ? (
+                                                      expired ? (
+                                                        <span className="inline-flex items-center gap-0.5 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">
+                                                          <XCircle className="h-3 w-3" />
+                                                          Vencido
+                                                        </span>
+                                                      ) : (
+                                                        <span className="inline-flex items-center gap-0.5 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-700">
+                                                          <CheckCircle className="h-3 w-3" />
+                                                          Vigente
+                                                        </span>
+                                                      )
+                                                    ) : (
+                                                      <span className="inline-flex items-center gap-0.5 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600 border border-red-200">
+                                                        Pendiente
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+
+                                        {/* Faena Passes */}
+                                        <div>
+                                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+                                            <ClipboardList className="h-4 w-4 text-purple-500" />
+                                            Pases Activos (Faenas)
+                                          </h4>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            {FAENAS.map((faenaName) => {
+                                              const record = (userPassesMap[user.id] || []).find(
+                                                (p) => p.faena_name === faenaName
+                                              );
+                                              const expired = isDateExpired(record?.fecha_vencimiento);
+                                              return (
+                                                <div
+                                                  key={faenaName}
+                                                  className="flex flex-col p-2.5 rounded-lg border border-slate-200 bg-white shadow-sm"
+                                                >
+                                                  <div className="flex items-center justify-between mb-1.5">
+                                                    <span className="text-sm font-bold text-slate-800">{faenaName}</span>
+                                                    {record ? (
+                                                      expired ? (
+                                                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-bold text-red-700">
+                                                          Vencido
+                                                        </span>
+                                                      ) : (
+                                                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-[9px] font-bold text-green-700">
+                                                          Activo
+                                                        </span>
+                                                      )
+                                                    ) : (
+                                                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-500">
+                                                        Inactivo
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                  <span className="text-[11px] text-slate-400 font-semibold font-mono flex items-center gap-1">
+                                                    <Calendar className="h-3 w-3" />
+                                                    {formatDateString(record?.fecha_vencimiento)}
+                                                  </span>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {activeTab === "checklists" && (
+            <div className="space-y-6">
+              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                <h3 className="text-lg font-bold text-slate-800 mb-2">Editar Preguntas de Encuestas</h3>
+                <p className="text-sm text-slate-500">
+                  Modifica las preguntas mostradas en la APK y especifica la respuesta esperada ("Sí" o "No") que debe marcar el chofer para aprobar el checklist.
+                </p>
+              </div>
+
+              {loadingChecklists ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                  <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600"></div>
+                  <span className="text-sm text-slate-500 font-medium">Cargando preguntas de encuestas...</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {["fatiga", "herramientas", "vehiculo", "epp"].map((type) => {
+                    const questions = checklistQuestions.filter((q) => q.checklist_type === type);
+                    const title =
+                      type === "fatiga"
+                        ? "Checklist Fatiga y Somnolencia"
+                        : type === "herramientas"
+                        ? "Checklist Herramientas"
+                        : type === "vehiculo"
+                        ? "Checklist Vehículo"
+                        : "Checklist EPP";
+
+                    return (
+                      <div key={type} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+                          <h4 className="font-bold text-sm tracking-wide uppercase">{title}</h4>
+                          <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-semibold">
+                            {questions.length} Preguntas
+                          </span>
+                        </div>
+
+                        <div className="divide-y divide-slate-100">
+                          {questions.map((q) => {
+                            const isEditing = editingQuestionId === q.id;
+                            return (
+                              <div key={q.id} className="p-4 flex flex-col gap-3">
+                                {isEditing ? (
+                                  <div className="space-y-3">
+                                    <div>
+                                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                                        Texto de la Pregunta
+                                      </label>
+                                      <textarea
+                                        value={editQuestionText}
+                                        onChange={(e) => setEditQuestionText(e.target.value)}
+                                        className="w-full border border-slate-300 rounded-lg p-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                                        rows={2}
+                                      />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-4">
+                                        <span className="text-xs font-bold text-slate-500 uppercase">Respuesta Esperada:</span>
+                                        <div className="flex gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => setEditExpectedAnswer("si")}
+                                            className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
+                                              editExpectedAnswer === "si"
+                                                ? "bg-green-600 border-green-600 text-white"
+                                                : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                            }`}
+                                          >
+                                            Sí
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setEditExpectedAnswer("no")}
+                                            className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
+                                              editExpectedAnswer === "no"
+                                                ? "bg-red-600 border-red-600 text-white"
+                                                : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                            }`}
+                                          >
+                                            No
+                                          </button>
+                                        </div>
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <button
+                                          onClick={() => setEditingQuestionId(null)}
+                                          className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"
+                                          title="Cancelar"
+                                        >
+                                          <X className="h-4 w-4" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleSaveQuestion(q.id)}
+                                          className="p-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                                          title="Guardar"
+                                        >
+                                          <Save className="h-4 w-4" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-semibold text-slate-800 leading-relaxed">
+                                        {q.question_text}
+                                      </p>
+                                      <div className="flex items-center gap-1.5 mt-1.5 text-xs text-slate-500 font-medium">
+                                        <span>Respuesta esperada para aprobar:</span>
+                                        <span
+                                          className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                            q.expected_answer === "si"
+                                              ? "bg-green-100 text-green-700"
+                                              : "bg-red-100 text-red-700"
+                                          }`}
+                                        >
+                                          {q.expected_answer === "si" ? "Sí" : "No"}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <button
+                                      onClick={() => startEditQuestion(q)}
+                                      className="text-slate-400 hover:text-blue-600 p-1 rounded hover:bg-slate-50 transition-colors shrink-0"
+                                      title="Editar Pregunta"
+                                    >
+                                      <Edit2 className="h-4 w-4" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -688,7 +1120,7 @@ export default function HomePage() {
       {/* CREATE MODAL */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden font-sans">
             <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
               <h3 className="font-bold text-lg">Agregar Nuevo Usuario APK</h3>
               <button
@@ -699,7 +1131,7 @@ export default function HomePage() {
               </button>
             </div>
             
-            <form onSubmit={handleCreateUser} className="p-6 space-y-4">
+            <form onSubmit={handleCreateUser} className="p-6 space-y-4 text-slate-700">
               {formError && (
                 <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
                   <AlertCircle className="h-4 w-4 shrink-0" />
@@ -817,7 +1249,7 @@ export default function HomePage() {
       {/* EDIT MODAL */}
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden font-sans">
             <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
               <h3 className="font-bold text-lg">Modificar Usuario APK</h3>
               <button
@@ -828,7 +1260,7 @@ export default function HomePage() {
               </button>
             </div>
             
-            <form onSubmit={handleEditUser} className="p-6 space-y-4">
+            <form onSubmit={handleEditUser} className="p-6 space-y-4 text-slate-700">
               {formError && (
                 <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
                   <AlertCircle className="h-4 w-4 shrink-0" />
@@ -944,7 +1376,7 @@ export default function HomePage() {
             <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
               <h3 className="font-bold text-lg flex items-center gap-2">
                 <FileText className="h-5 w-5 text-blue-500" />
-                Documentos de {selectedUser.nombre}
+                Contrato de {selectedUser.nombre}
               </h3>
               <button
                 onClick={() => setIsDocModalOpen(false)}
@@ -982,7 +1414,7 @@ export default function HomePage() {
                 ) : (
                   <div className="flex items-center gap-2 p-4 rounded-lg border border-slate-200 bg-slate-50 text-slate-500 text-xs">
                     <AlertCircle className="h-5 w-5 shrink-0" />
-                    <span>No hay documentos cargados para este usuario. Puedes asociar un enlace en el formulario de edición.</span>
+                    <span>No hay documentos de contrato cargados para este usuario. Puedes asociar un enlace en el formulario de edición.</span>
                   </div>
                 )}
               </div>
