@@ -1,7 +1,18 @@
 "use client";
 
 import React, { useState, useEffect, Fragment } from "react";
+import dynamic from "next/dynamic";
 import { supabase } from "@/lib/supabase";
+
+const LocationPickerMap = dynamic(() => import("./LocationPickerMap"), {
+  ssr: false,
+  loading: () => <div className="w-full h-[250px] bg-slate-100 rounded-lg flex items-center justify-center text-xs text-slate-500 font-semibold animate-pulse">Cargando mapa interactivo...</div>
+});
+
+const LocationViewMap = dynamic(() => import("./LocationViewMap"), {
+  ssr: false,
+  loading: () => <div className="w-full h-[320px] bg-slate-100 rounded-xl flex items-center justify-center text-xs text-slate-500 font-semibold animate-pulse">Cargando mapa de ubicación...</div>
+});
 import {
   Menu,
   ChevronLeft,
@@ -197,6 +208,8 @@ export default function HomePage() {
   const [savingPointForm, setSavingPointForm] = useState(false);
   const [selectedPointForQR, setSelectedPointForQR] = useState<FaenaPoint | null>(null);
   const [isPointQRModalOpen, setIsPointQRModalOpen] = useState(false);
+  const [selectedPointForMap, setSelectedPointForMap] = useState<FaenaPoint | null>(null);
+  const [isPointMapModalOpen, setIsPointMapModalOpen] = useState(false);
 
   // Documents/Passes Upload Modal State
   const [isDocEditModalOpen, setIsDocEditModalOpen] = useState(false);
@@ -2061,6 +2074,16 @@ export default function HomePage() {
                                                       <QrCode className="h-4 w-4" />
                                                     </button>
                                                     <button
+                                                      onClick={() => {
+                                                        setSelectedPointForMap(point);
+                                                        setIsPointMapModalOpen(true);
+                                                      }}
+                                                      className="text-slate-400 hover:text-green-600 p-1 rounded hover:bg-slate-50 transition-colors"
+                                                      title="Ver Ubicación en Mapa"
+                                                    >
+                                                      <MapPin className="h-4 w-4" />
+                                                    </button>
+                                                    <button
                                                       onClick={() => openPointEditModal(faena, point)}
                                                       className="text-slate-400 hover:text-blue-600 p-1 rounded hover:bg-slate-50 transition-colors"
                                                       title="Editar Punto"
@@ -2086,16 +2109,6 @@ export default function HomePage() {
                                                     </span>
                                                   </div>
                                                 </div>
-
-                                                <a
-                                                  href={`https://www.google.com/maps?q=${point.latitude},${point.longitude}`}
-                                                  target="_blank"
-                                                  rel="noopener noreferrer"
-                                                  className="absolute bottom-16 right-4 p-1.5 rounded-full bg-blue-50 border border-blue-150 text-blue-600 hover:bg-blue-100 transition-colors"
-                                                  title="Ver en Google Maps"
-                                                >
-                                                  <MapPin className="h-4 w-4" />
-                                                </a>
                                               </div>
                                             ))}
                                           </div>
@@ -2767,6 +2780,22 @@ export default function HomePage() {
                 </div>
               </div>
 
+              {/* Map Selector */}
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-700 uppercase">Ubicación en el Mapa</label>
+                <LocationPickerMap
+                  latitude={pointFormData.latitude}
+                  longitude={pointFormData.longitude}
+                  onChange={(lat, lng) =>
+                    setPointFormData((prev) => ({
+                      ...prev,
+                      latitude: lat,
+                      longitude: lng,
+                    }))
+                  }
+                />
+              </div>
+
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
@@ -2784,6 +2813,56 @@ export default function HomePage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* FAENA POINT MAP MODAL */}
+      {isPointMapModalOpen && selectedPointForMap && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden font-sans">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <MapPin className="h-5 w-5 text-blue-500" />
+                Ubicación Punto: {selectedPointForMap.codigo}
+              </h3>
+              <button
+                onClick={() => setIsPointMapModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <LocationViewMap
+                latitude={selectedPointForMap.latitude}
+                longitude={selectedPointForMap.longitude}
+                pointCodigo={selectedPointForMap.codigo}
+              />
+
+              <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+                <span>Lat: {selectedPointForMap.latitude} • Lng: {selectedPointForMap.longitude}</span>
+                <a
+                  href={`https://www.google.com/maps?q=${selectedPointForMap.latitude},${selectedPointForMap.longitude}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:underline flex items-center gap-1 font-bold"
+                >
+                  Abrir en Google Maps externo ↗
+                </a>
+              </div>
+
+              <div className="flex justify-end pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsPointMapModalOpen(false)}
+                  className="bg-slate-900 text-white rounded-lg px-4 py-2 hover:bg-slate-800 transition-colors text-sm font-semibold"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
