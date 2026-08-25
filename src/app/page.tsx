@@ -228,6 +228,16 @@ export default function HomePage() {
   const [editQuestionText, setEditQuestionText] = useState("");
   const [editExpectedAnswer, setEditExpectedAnswer] = useState("si");
 
+  // Checklist Submissions State
+  const [checklistsSubTab, setChecklistsSubTab] = useState<"preguntas" | "registros">("preguntas");
+  const [checklistSubmissions, setChecklistSubmissions] = useState<any[]>([]);
+  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
+  const [subFilterStartDate, setSubFilterStartDate] = useState("");
+  const [subFilterEndDate, setSubFilterEndDate] = useState("");
+  const [subFilterUserId, setSubFilterUserId] = useState("");
+  const [selectedSubmissionForDetail, setSelectedSubmissionForDetail] = useState<any | null>(null);
+  const [isSubmissionDetailModalOpen, setIsSubmissionDetailModalOpen] = useState(false);
+
   // Modales State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -321,12 +331,43 @@ export default function HomePage() {
     }
   };
 
+  // Load checklist submissions from Supabase
+  const fetchChecklistSubmissions = async () => {
+    setLoadingSubmissions(true);
+    try {
+      const { data, error } = await supabase
+        .from("vehicle_daily_checklists")
+        .select(`
+          id,
+          vehicle_code,
+          fecha,
+          user_id,
+          created_at,
+          respuestas,
+          app_users (
+            nombre,
+            rut,
+            cargo
+          )
+        `)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setChecklistSubmissions(data || []);
+    } catch (err: any) {
+      console.error("Error fetching checklist submissions:", err.message);
+    } finally {
+      setLoadingSubmissions(false);
+    }
+  };
+
   useEffect(() => {
     if (isLoggedIn) {
       fetchUsers();
       fetchVehicles();
       fetchFaenas();
       fetchChecklistQuestions();
+      fetchChecklistSubmissions();
     }
   }, [isLoggedIn]);
 
@@ -1189,7 +1230,22 @@ export default function HomePage() {
     (f) =>
       f.nombre.toLowerCase().includes(searchFaenaQuery.toLowerCase())
   );
-
+  // Filtered Checklist Submissions List
+  const filteredSubmissions = checklistSubmissions.filter((submission) => {
+    // 1. Worker filter
+    if (subFilterUserId && submission.user_id !== subFilterUserId) {
+      return false;
+    }
+    // 2. Date filter (Start Date)
+    if (subFilterStartDate && submission.fecha < subFilterStartDate) {
+      return false;
+    }
+    // 3. Date filter (End Date)
+    if (subFilterEndDate && submission.fecha > subFilterEndDate) {
+      return false;
+    }
+    return true;
+  });
   // Helper: check if a date is expired
   const isDateExpired = (dateString?: string) => {
     if (!dateString) return true;
@@ -1208,12 +1264,18 @@ export default function HomePage() {
     const year = date.getUTCFullYear();
     return `${day}/${month}/${year}`;
   };
-
   // Helper: format Timestamp to readable string
   const formatTimestampString = (timestampString?: string) => {
     if (!timestampString) return "Sin registro de visitas";
     const date = new Date(timestampString);
     return date.toLocaleString();
+  };
+
+  // Helper: format Timestamp to time only string (HH:MM:SS)
+  const formatTimeString = (timestampString?: string) => {
+    if (!timestampString) return "N/A";
+    const date = new Date(timestampString);
+    return date.toLocaleTimeString();
   };
 
   // Render Login page if not authenticated
@@ -2130,140 +2192,305 @@ export default function HomePage() {
           )}
 
           {activeTab === "checklists" && (
-            <div className="space-y-6">
-              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <h3 className="text-lg font-bold text-slate-800 mb-2">Editar Preguntas de Encuestas</h3>
-                <p className="text-sm text-slate-500">
-                  Modifica las preguntas mostradas en la APK y especifica la respuesta esperada ("Sí" o "No") que debe marcar el chofer para aprobar el checklist.
-                </p>
+            <div className="space-y-6 font-sans">
+              {/* Navigation Sub-Tabs */}
+              <div className="flex gap-4 border-b border-slate-200">
+                <button
+                  onClick={() => setChecklistsSubTab("preguntas")}
+                  className={`pb-3 text-sm font-bold border-b-2 transition-colors ${
+                    checklistsSubTab === "preguntas"
+                      ? "border-blue-600 text-blue-600"
+                      : "border-transparent text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Preguntas de Encuestas
+                </button>
+                <button
+                  onClick={() => {
+                    setChecklistsSubTab("registros");
+                    fetchChecklistSubmissions(); // reload records
+                  }}
+                  className={`pb-3 text-sm font-bold border-b-2 transition-colors ${
+                    checklistsSubTab === "registros"
+                      ? "border-blue-600 text-blue-600"
+                      : "border-transparent text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Registros de Encuestas
+                </button>
               </div>
 
-              {loadingChecklists ? (
-                <div className="flex flex-col items-center justify-center py-20 gap-3">
-                  <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600"></div>
-                  <span className="text-sm text-slate-500 font-medium">Cargando preguntas de encuestas...</span>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {["fatiga", "herramientas", "vehiculo", "epp"].map((type) => {
-                    const questions = checklistQuestions.filter((q) => q.checklist_type === type);
-                    const title =
-                      type === "fatiga"
-                        ? "Checklist Fatiga y Somnolencia"
-                        : type === "herramientas"
-                        ? "Checklist Herramientas"
-                        : type === "vehiculo"
-                        ? "Checklist Vehículo"
-                        : "Checklist EPP";
+              {checklistsSubTab === "preguntas" ? (
+                <>
+                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 className="text-lg font-bold text-slate-800 mb-2">Editar Preguntas de Encuestas</h3>
+                    <p className="text-sm text-slate-500">
+                      Modifica las preguntas mostradas en la APK y especifica la respuesta esperada ("Sí" o "No") que debe marcar el chofer para aprobar el checklist.
+                    </p>
+                  </div>
 
-                    return (
-                      <div key={type} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                        <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
-                          <h4 className="font-bold text-sm tracking-wide uppercase">{title}</h4>
-                          <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-semibold">
-                            {questions.length} Preguntas
-                          </span>
-                        </div>
+                  {loadingChecklists ? (
+                    <div className="flex flex-col items-center justify-center py-20 gap-3">
+                      <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600"></div>
+                      <span className="text-sm text-slate-500 font-medium">Cargando preguntas de encuestas...</span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {["fatiga", "herramientas", "vehiculo", "epp"].map((type) => {
+                        const questions = checklistQuestions.filter((q) => q.checklist_type === type);
+                        const title =
+                          type === "fatiga"
+                            ? "Checklist Fatiga y Somnolencia"
+                            : type === "herramientas"
+                            ? "Checklist Herramientas"
+                            : type === "vehiculo"
+                            ? "Checklist Vehículo"
+                            : "Checklist EPP";
 
-                        <div className="divide-y divide-slate-100">
-                          {questions.map((q) => {
-                            const isEditing = editingQuestionId === q.id;
-                            return (
-                              <div key={q.id} className="p-4 flex flex-col gap-3">
-                                {isEditing ? (
-                                  <div className="space-y-3">
-                                    <div>
-                                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
-                                        Texto de la Pregunta
-                                      </label>
-                                      <textarea
-                                        value={editQuestionText}
-                                        onChange={(e) => setEditQuestionText(e.target.value)}
-                                        className="w-full border border-slate-300 rounded-lg p-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
-                                        rows={2}
-                                      />
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center gap-4">
-                                        <span className="text-xs font-bold text-slate-500 uppercase">Respuesta Esperada:</span>
-                                        <div className="flex gap-2">
-                                          <button
-                                            type="button"
-                                            onClick={() => setEditExpectedAnswer("si")}
-                                            className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
-                                              editExpectedAnswer === "si"
-                                                ? "bg-green-600 border-green-600 text-white"
-                                                : "border-slate-200 text-slate-600 hover:bg-slate-50"
-                                            }`}
-                                          >
-                                            Sí
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => setEditExpectedAnswer("no")}
-                                            className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
-                                              editExpectedAnswer === "no"
-                                                ? "bg-red-600 border-red-600 text-white"
-                                                : "border-slate-200 text-slate-600 hover:bg-slate-50"
-                                            }`}
-                                          >
-                                            No
-                                          </button>
+                        return (
+                          <div key={type} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+                              <h4 className="font-bold text-sm tracking-wide uppercase">{title}</h4>
+                              <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-semibold">
+                                {questions.length} Preguntas
+                              </span>
+                            </div>
+
+                            <div className="divide-y divide-slate-100">
+                              {questions.map((q) => {
+                                const isEditing = editingQuestionId === q.id;
+                                return (
+                                  <div key={q.id} className="p-4 flex flex-col gap-3">
+                                    {isEditing ? (
+                                      <div className="space-y-3">
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                                            Texto de la Pregunta
+                                          </label>
+                                          <textarea
+                                            value={editQuestionText}
+                                            onChange={(e) => setEditQuestionText(e.target.value)}
+                                            className="w-full border border-slate-300 rounded-lg p-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                                            rows={2}
+                                          />
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                          <div className="flex items-center gap-4">
+                                            <span className="text-xs font-bold text-slate-500 uppercase">Respuesta Esperada:</span>
+                                            <div className="flex gap-2">
+                                              <button
+                                                type="button"
+                                                onClick={() => setEditExpectedAnswer("si")}
+                                                className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
+                                                  editExpectedAnswer === "si"
+                                                    ? "bg-green-600 border-green-600 text-white"
+                                                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                                }`}
+                                              >
+                                                Sí
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => setEditExpectedAnswer("no")}
+                                                className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
+                                                  editExpectedAnswer === "no"
+                                                    ? "bg-red-600 border-red-600 text-white"
+                                                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                                }`}
+                                              >
+                                                No
+                                              </button>
+                                            </div>
+                                          </div>
+                                          <div className="flex gap-2">
+                                            <button
+                                              onClick={() => setEditingQuestionId(null)}
+                                              className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"
+                                              title="Cancelar"
+                                            >
+                                              <X className="h-4 w-4" />
+                                            </button>
+                                            <button
+                                              onClick={() => handleSaveQuestion(q.id)}
+                                              className="p-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                                              title="Guardar"
+                                            >
+                                              <Save className="h-4 w-4" />
+                                            </button>
+                                          </div>
                                         </div>
                                       </div>
-                                      <div className="flex gap-2">
+                                    ) : (
+                                      <div className="flex items-start justify-between gap-4">
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-sm font-semibold text-slate-800 leading-relaxed">
+                                            {q.question_text}
+                                          </p>
+                                          <div className="flex items-center gap-1.5 mt-1.5 text-xs text-slate-500 font-medium">
+                                            <span>Respuesta esperada para aprobar:</span>
+                                            <span
+                                              className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                                q.expected_answer === "si"
+                                                  ? "bg-green-100 text-green-700"
+                                                  : "bg-red-100 text-red-700"
+                                              }`}
+                                            >
+                                              {q.expected_answer === "si" ? "Sí" : "No"}
+                                            </span>
+                                          </div>
+                                        </div>
                                         <button
-                                          onClick={() => setEditingQuestionId(null)}
-                                          className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"
-                                          title="Cancelar"
+                                          onClick={() => startEditQuestion(q)}
+                                          className="text-slate-400 hover:text-blue-600 p-1 rounded hover:bg-slate-50 transition-colors shrink-0"
+                                          title="Editar Pregunta"
                                         >
-                                          <X className="h-4 w-4" />
-                                        </button>
-                                        <button
-                                          onClick={() => handleSaveQuestion(q.id)}
-                                          className="p-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-                                          title="Guardar"
-                                        >
-                                          <Save className="h-4 w-4" />
+                                          <Edit2 className="h-4 w-4" />
                                         </button>
                                       </div>
-                                    </div>
+                                    )}
                                   </div>
-                                ) : (
-                                  <div className="flex items-start justify-between gap-4">
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-semibold text-slate-800 leading-relaxed">
-                                        {q.question_text}
-                                      </p>
-                                      <div className="flex items-center gap-1.5 mt-1.5 text-xs text-slate-500 font-medium">
-                                        <span>Respuesta esperada para aprobar:</span>
-                                        <span
-                                          className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                                            q.expected_answer === "si"
-                                              ? "bg-green-100 text-green-700"
-                                              : "bg-red-100 text-red-700"
-                                          }`}
-                                        >
-                                          {q.expected_answer === "si" ? "Sí" : "No"}
-                                        </span>
-                                      </div>
-                                    </div>
-                                    <button
-                                      onClick={() => startEditQuestion(q)}
-                                      className="text-slate-400 hover:text-blue-600 p-1 rounded hover:bg-slate-50 transition-colors shrink-0"
-                                      title="Editar Pregunta"
-                                    >
-                                      <Edit2 className="h-4 w-4" />
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-6">
+                  {/* Filters Card */}
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-end text-slate-700">
+                    <div className="flex-1 min-w-[200px]">
+                      <label className="block text-xs font-bold text-slate-450 uppercase mb-1">Trabajador</label>
+                      <select
+                        value={subFilterUserId}
+                        onChange={(e) => setSubFilterUserId(e.target.value)}
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none bg-white font-medium"
+                      >
+                        <option value="">Todos los trabajadores</option>
+                        {users.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="w-full md:w-44">
+                      <label className="block text-xs font-bold text-slate-450 uppercase mb-1">Fecha Desde</label>
+                      <input
+                        type="date"
+                        value={subFilterStartDate}
+                        onChange={(e) => setSubFilterStartDate(e.target.value)}
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none font-medium"
+                      />
+                    </div>
+                    <div className="w-full md:w-44">
+                      <label className="block text-xs font-bold text-slate-450 uppercase mb-1">Fecha Hasta</label>
+                      <input
+                        type="date"
+                        value={subFilterEndDate}
+                        onChange={(e) => setSubFilterEndDate(e.target.value)}
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none font-medium"
+                      />
+                    </div>
+                    {(subFilterUserId || subFilterStartDate || subFilterEndDate) && (
+                      <button
+                        onClick={() => {
+                          setSubFilterUserId("");
+                          setSubFilterStartDate("");
+                          setSubFilterEndDate("");
+                        }}
+                        className="border border-slate-300 text-slate-600 rounded-lg p-2 hover:bg-slate-50 text-sm font-semibold transition-colors w-full md:w-auto text-center"
+                      >
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Submissions Table */}
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    {loadingSubmissions ? (
+                      <div className="flex flex-col items-center justify-center py-20 gap-3">
+                        <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600"></div>
+                        <span className="text-sm text-slate-500 font-medium">Cargando registros...</span>
                       </div>
-                    );
-                  })}
+                    ) : filteredSubmissions.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-20 text-center px-4">
+                        <AlertCircle className="h-16 w-16 text-slate-300 mb-4" />
+                        <h3 className="text-lg font-bold text-slate-800">No se encontraron registros</h3>
+                        <p className="text-slate-500 mt-1 max-w-sm text-sm">
+                          No hay encuestas realizadas para los filtros seleccionados.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-left text-sm text-slate-600">
+                          <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-200 font-semibold">
+                            <tr>
+                              <th className="px-6 py-4">Fecha</th>
+                              <th className="px-6 py-4">Hora</th>
+                              <th className="px-6 py-4">Trabajador</th>
+                              <th className="px-6 py-4">Vehículo</th>
+                              <th className="px-6 py-4">Cumplimiento</th>
+                              <th className="px-6 py-4 text-right">Respuestas</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {filteredSubmissions.map((sub) => {
+                              const totalQ = Object.keys(sub.respuestas || {}).length;
+                              const approvedQ = Object.entries(sub.respuestas || {}).filter(([qId, ans]) => {
+                                const qObj = checklistQuestions.find(q => q.id === qId);
+                                return qObj && qObj.expected_answer === ans;
+                              }).length;
+
+                              const isFullyApproved = totalQ > 0 && approvedQ === totalQ;
+
+                              return (
+                                <tr key={sub.id} className="hover:bg-slate-50/50 transition-colors">
+                                  <td className="px-6 py-4 font-semibold text-slate-700 font-mono">
+                                    {formatDateString(sub.fecha)}
+                                  </td>
+                                  <td className="px-6 py-4 font-medium text-slate-500 font-mono">
+                                    {formatTimeString(sub.created_at)}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <div className="font-bold text-slate-800">{sub.app_users?.nombre || "Usuario Eliminado"}</div>
+                                    <div className="text-[10px] text-slate-400 font-semibold">{sub.app_users?.cargo}</div>
+                                  </td>
+                                  <td className="px-6 py-4 font-bold text-slate-700 font-mono">
+                                    {sub.vehicle_code}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                                      isFullyApproved
+                                        ? "bg-green-100 text-green-800"
+                                        : "bg-amber-100 text-amber-800"
+                                    }`}>
+                                      {isFullyApproved ? "Aprobado" : "Rechazos detectados"} ({approvedQ}/{totalQ})
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4 text-right">
+                                    <button
+                                      onClick={() => {
+                                        setSelectedSubmissionForDetail(sub);
+                                        setIsSubmissionDetailModalOpen(true);
+                                      }}
+                                      className="inline-flex items-center gap-1 bg-slate-900 hover:bg-slate-800 text-white font-semibold py-1.5 px-3 rounded-lg text-xs transition-colors shadow-sm"
+                                    >
+                                      <Eye className="h-3.5 w-3.5" />
+                                      Ver Respuestas
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -2813,6 +3040,116 @@ export default function HomePage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CHECKLIST SUBMISSIONS DETAILS MODAL */}
+      {isSubmissionDetailModalOpen && selectedSubmissionForDetail && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] shadow-2xl border border-slate-200 overflow-hidden font-sans flex flex-col">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <ClipboardList className="h-5 w-5 text-blue-500" />
+                Respuestas de Checklist: {selectedSubmissionForDetail.app_users?.nombre || "Chofer"}
+              </h3>
+              <button
+                onClick={() => setIsSubmissionDetailModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-6 flex-1 text-slate-700">
+              {/* Header Info */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-150 text-xs">
+                <div>
+                  <span className="font-bold text-slate-400 block uppercase">Trabajador</span>
+                  <span className="font-bold text-slate-800 text-sm">{selectedSubmissionForDetail.app_users?.nombre || "Usuario Eliminado"}</span>
+                </div>
+                <div>
+                  <span className="font-bold text-slate-400 block uppercase">Vehículo</span>
+                  <span className="font-bold text-slate-800 text-sm font-mono">{selectedSubmissionForDetail.vehicle_code}</span>
+                </div>
+                <div>
+                  <span className="font-bold text-slate-400 block uppercase">Fecha</span>
+                  <span className="font-bold text-slate-800 text-sm">{formatDateString(selectedSubmissionForDetail.fecha)}</span>
+                </div>
+                <div>
+                  <span className="font-bold text-slate-400 block uppercase">Hora</span>
+                  <span className="font-bold text-slate-800 text-sm font-mono">{formatTimeString(selectedSubmissionForDetail.created_at)}</span>
+                </div>
+              </div>
+
+              {/* Answers list */}
+              <div className="space-y-6">
+                {["fatiga", "herramientas", "vehiculo", "epp"].map((type) => {
+                  const typeQuestions = checklistQuestions.filter(q => q.checklist_type === type);
+                  if (typeQuestions.length === 0) return null;
+
+                  const title =
+                    type === "fatiga"
+                      ? "Fatiga y Somnolencia"
+                      : type === "herramientas"
+                      ? "Herramientas"
+                      : type === "vehiculo"
+                      ? "Vehículo"
+                      : "EPP";
+
+                  return (
+                    <div key={type} className="space-y-2">
+                      <h4 className="font-bold text-xs text-slate-500 uppercase tracking-wider border-b border-slate-200 pb-1">
+                        Checklist {title}
+                      </h4>
+                      <div className="space-y-1.5">
+                        {typeQuestions.map((q) => {
+                          const answer = selectedSubmissionForDetail.respuestas?.[q.id];
+                          const hasAnswer = !!answer;
+                          const isCorrect = hasAnswer && answer === q.expected_answer;
+
+                          return (
+                            <div key={q.id} className="flex justify-between items-start gap-4 p-2.5 rounded-lg border border-slate-100 bg-slate-50/30 text-sm">
+                              <span className="text-slate-800 font-medium">{q.question_text}</span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {hasAnswer ? (
+                                  <>
+                                    <span className={`text-[11px] font-bold uppercase px-2 py-0.5 rounded ${
+                                      answer === "si" ? "bg-slate-100 text-slate-800" : "bg-slate-200 text-slate-700"
+                                    }`}>
+                                      Marcó: {answer === "si" ? "Sí" : "No"}
+                                    </span>
+                                    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                                      isCorrect
+                                        ? "bg-green-150 text-green-700"
+                                        : "bg-red-150 text-red-700"
+                                    }`}>
+                                      {isCorrect ? "Aprobado" : "Rechazado"}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="text-xs text-slate-400 italic">Sin respuesta</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex justify-end p-6 border-t border-slate-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsSubmissionDetailModalOpen(false)}
+                className="bg-slate-900 text-white rounded-lg px-4 py-2 hover:bg-slate-800 transition-colors text-sm font-semibold"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}
