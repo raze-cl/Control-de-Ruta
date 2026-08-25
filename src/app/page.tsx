@@ -27,7 +27,11 @@ import {
   Calendar,
   Save,
   Check,
-  X
+  X,
+  Truck,
+  QrCode,
+  Download,
+  Printer
 } from "lucide-react";
 
 interface AppUser {
@@ -40,6 +44,14 @@ interface AppUser {
   password?: string;
   habilitado: boolean;
   documento_url?: string;
+  created_at?: string;
+}
+
+interface Vehicle {
+  id: string;
+  codigo: string;
+  patente: string;
+  tipo_vehiculo: string;
   created_at?: string;
 }
 
@@ -67,6 +79,16 @@ const FAENAS = [
   "Spence"
 ];
 
+const VEHICLE_DOCS = [
+  "Padrón",
+  "Permiso de circulación",
+  "SOAP",
+  "Revisión técnica",
+  "Certificado de gases",
+  "Certificado de mantención",
+  "Certificaciones"
+];
+
 export default function HomePage() {
   // Login State
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -85,11 +107,21 @@ export default function HomePage() {
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   
-  // Row Expansion State
+  // User Row Expansion State
   const [expandedUserIds, setExpandedUserIds] = useState<string[]>([]);
   const [userDocsMap, setUserDocsMap] = useState<Record<string, any[]>>({});
   const [userPassesMap, setUserPassesMap] = useState<Record<string, any[]>>({});
   const [loadingDetails, setLoadingDetails] = useState<Record<string, boolean>>({});
+
+  // Vehicles State
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [loadingVehicles, setLoadingVehicles] = useState(true);
+  const [searchVehicleQuery, setSearchVehicleQuery] = useState("");
+  const [expandedVehicleIds, setExpandedVehicleIds] = useState<string[]>([]);
+  const [vehicleDocsMap, setVehicleDocsMap] = useState<Record<string, any[]>>({});
+  const [loadingVehicleDetails, setLoadingVehicleDetails] = useState<Record<string, boolean>>({});
+  const [selectedVehicleForQR, setSelectedVehicleForQR] = useState<Vehicle | null>(null);
+  const [isQRModalOpen, setIsQRModalOpen] = useState(false);
 
   // Checklists Tab State
   const [checklistQuestions, setChecklistQuestions] = useState<ChecklistQuestion[]>([]);
@@ -104,7 +136,7 @@ export default function HomePage() {
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<AppUser | null>(null);
 
-  // Form State (for Create/Edit)
+  // Form State (for Create/Edit User)
   const [formData, setFormData] = useState({
     nombre: "",
     rut: "",
@@ -136,6 +168,24 @@ export default function HomePage() {
     }
   };
 
+  // Load vehicles from Supabase
+  const fetchVehicles = async () => {
+    setLoadingVehicles(true);
+    try {
+      const { data, error } = await supabase
+        .from("vehicles")
+        .select("*")
+        .order("codigo", { ascending: true });
+
+      if (error) throw error;
+      setVehicles(data || []);
+    } catch (err: any) {
+      console.error("Error fetching vehicles:", err.message);
+    } finally {
+      setLoadingVehicles(false);
+    }
+  };
+
   // Load checklist questions from Supabase
   const fetchChecklistQuestions = async () => {
     setLoadingChecklists(true);
@@ -158,6 +208,7 @@ export default function HomePage() {
   useEffect(() => {
     if (isLoggedIn) {
       fetchUsers();
+      fetchVehicles();
       fetchChecklistQuestions();
     }
   }, [isLoggedIn]);
@@ -206,7 +257,7 @@ export default function HomePage() {
     setLoginPassword("");
   };
 
-  // Toggle Row Expansion
+  // Toggle User Row Expansion
   const toggleRow = async (userId: string) => {
     const isExpanded = expandedUserIds.includes(userId);
     if (isExpanded) {
@@ -239,6 +290,35 @@ export default function HomePage() {
         console.error("Error loading user documents/passes:", err.message);
       } finally {
         setLoadingDetails((prev) => ({ ...prev, [userId]: false }));
+      }
+    }
+  };
+
+  // Toggle Vehicle Row Expansion
+  const toggleVehicleRow = async (vehicleId: string) => {
+    const isExpanded = expandedVehicleIds.includes(vehicleId);
+    if (isExpanded) {
+      setExpandedVehicleIds(expandedVehicleIds.filter((id) => id !== vehicleId));
+      return;
+    }
+
+    setExpandedVehicleIds([...expandedVehicleIds, vehicleId]);
+
+    // Fetch vehicle docs on demand if not fetched yet
+    if (!vehicleDocsMap[vehicleId]) {
+      setLoadingVehicleDetails((prev) => ({ ...prev, [vehicleId]: true }));
+      try {
+        const { data: docs, error } = await supabase
+          .from("vehicle_documents")
+          .select("*")
+          .eq("vehicle_id", vehicleId);
+
+        if (error) throw error;
+        setVehicleDocsMap((prev) => ({ ...prev, [vehicleId]: docs || [] }));
+      } catch (err: any) {
+        console.error("Error loading vehicle docs:", err.message);
+      } finally {
+        setLoadingVehicleDetails((prev) => ({ ...prev, [vehicleId]: false }));
       }
     }
   };
@@ -441,12 +521,26 @@ export default function HomePage() {
     }
   };
 
+  // Open QR Code Modal for Vehicle
+  const openQRModal = (vehicle: Vehicle) => {
+    setSelectedVehicleForQR(vehicle);
+    setIsQRModalOpen(true);
+  };
+
   // Filtered Users List
   const filteredUsers = users.filter(
     (u) =>
       u.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.rut.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.username.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Filtered Vehicles List
+  const filteredVehicles = vehicles.filter(
+    (v) =>
+      v.codigo.toLowerCase().includes(searchVehicleQuery.toLowerCase()) ||
+      v.patente.toLowerCase().includes(searchVehicleQuery.toLowerCase()) ||
+      v.tipo_vehiculo.toLowerCase().includes(searchVehicleQuery.toLowerCase())
   );
 
   // Helper: check if a date is expired
@@ -594,6 +688,18 @@ export default function HomePage() {
           </button>
 
           <button
+            onClick={() => setActiveTab("vehicles")}
+            className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+              activeTab === "vehicles"
+                ? "bg-blue-600 text-white shadow"
+                : "text-slate-400 hover:bg-slate-800 hover:text-white"
+            }`}
+          >
+            <Truck className="h-5 w-5 shrink-0" />
+            {isSidebarExpanded && <span>Vehículos</span>}
+          </button>
+
+          <button
             onClick={() => setActiveTab("checklists")}
             className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
               activeTab === "checklists"
@@ -661,6 +767,8 @@ export default function HomePage() {
           <h1 className="text-xl font-bold text-slate-800">
             {activeTab === "users"
               ? "Gestión de Usuarios APK"
+              : activeTab === "vehicles"
+              ? "Monitoreo y Gestión de Vehículos"
               : activeTab === "checklists"
               ? "Configuración de Encuestas / Checklists"
               : "Estadísticas y Monitoreo"}
@@ -937,6 +1045,151 @@ export default function HomePage() {
             </div>
           )}
 
+          {activeTab === "vehicles" && (
+            <div className="space-y-6">
+              {/* Action Controls */}
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                {/* Search Bar */}
+                <div className="relative flex-1 max-w-md">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                    <Search className="h-5 w-5" />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Buscar por código, patente o tipo..."
+                    value={searchVehicleQuery}
+                    onChange={(e) => setSearchVehicleQuery(e.target.value)}
+                    className="block w-full rounded-lg border border-slate-300 py-2 pl-10 pr-3 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Table Data Card */}
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                {loadingVehicles ? (
+                  <div className="flex flex-col items-center justify-center py-20 gap-3">
+                    <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600"></div>
+                    <span className="text-sm text-slate-500 font-medium">Cargando vehículos...</span>
+                  </div>
+                ) : filteredVehicles.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center px-4">
+                    <AlertCircle className="h-16 w-16 text-slate-300 mb-4" />
+                    <h3 className="text-lg font-bold text-slate-800">No se encontraron vehículos</h3>
+                    <p className="text-slate-500 mt-1 max-w-sm text-sm">
+                      Intenta modificar tu criterio de búsqueda.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-left text-sm text-slate-600">
+                      <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-200 font-semibold">
+                        <tr>
+                          <th className="px-6 py-4 w-10"></th>
+                          <th className="px-6 py-4">Código Interno</th>
+                          <th className="px-6 py-4">Patente</th>
+                          <th className="px-6 py-4">Tipo de Vehículo</th>
+                          <th className="px-6 py-4 text-center">Código QR</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredVehicles.map((vehicle) => {
+                          const isExpanded = expandedVehicleIds.includes(vehicle.id);
+                          return (
+                            <Fragment key={vehicle.id}>
+                              {/* Row structure */}
+                              <tr
+                                onClick={() => toggleVehicleRow(vehicle.id)}
+                                className={`cursor-pointer transition-colors ${
+                                  isExpanded ? "bg-slate-50/70" : "hover:bg-slate-50"
+                                }`}
+                              >
+                                <td className="px-6 py-4 text-slate-400">
+                                  {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                </td>
+                                <td className="px-6 py-4 font-bold text-slate-800">{vehicle.codigo}</td>
+                                <td className="px-6 py-4 font-mono font-semibold text-slate-700">{vehicle.patente}</td>
+                                <td className="px-6 py-4 font-medium text-slate-600">{vehicle.tipo_vehiculo}</td>
+                                <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => openQRModal(vehicle)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-semibold transition-colors"
+                                  >
+                                    <QrCode className="h-4 w-4" />
+                                    Generar QR
+                                  </button>
+                                </td>
+                              </tr>
+
+                              {/* Expanded Row Content */}
+                              {isExpanded && (
+                                <tr className="bg-slate-50/40 border-l-4 border-l-blue-500">
+                                  <td colSpan={5} className="px-10 py-6 border-b border-slate-200">
+                                    {loadingVehicleDetails[vehicle.id] ? (
+                                      <div className="flex items-center gap-2 text-sm text-slate-500">
+                                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-500"></div>
+                                        Cargando documentos de vehículo...
+                                      </div>
+                                    ) : (
+                                      <div>
+                                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+                                          <FileText className="h-4 w-4 text-blue-500" />
+                                          Vencimiento de Documentación Obligatoria
+                                        </h4>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                          {VEHICLE_DOCS.map((docName) => {
+                                            const record = (vehicleDocsMap[vehicle.id] || []).find(
+                                              (d) => d.document_name === docName
+                                            );
+                                            const expired = isDateExpired(record?.fecha_vencimiento);
+                                            return (
+                                              <div
+                                                key={docName}
+                                                className="flex flex-col p-3 rounded-lg border border-slate-200 bg-white shadow-sm"
+                                              >
+                                                <span className="text-xs font-bold text-slate-500 uppercase truncate mb-1" title={docName}>
+                                                  {docName}
+                                                </span>
+                                                <div className="flex items-center justify-between mt-1">
+                                                  <span className="text-xs text-slate-700 font-mono font-medium flex items-center gap-1">
+                                                    <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                                                    {formatDateString(record?.fecha_vencimiento)}
+                                                  </span>
+                                                  {record ? (
+                                                    expired ? (
+                                                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-bold text-red-700">
+                                                        Vencido
+                                                      </span>
+                                                    ) : (
+                                                      <span className="rounded-full bg-green-100 px-2 py-0.5 text-[9px] font-bold text-green-700">
+                                                        Vigente
+                                                      </span>
+                                                    )
+                                                  ) : (
+                                                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-500">
+                                                      Pendiente
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {activeTab === "checklists" && (
             <div className="space-y-6">
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
@@ -1078,7 +1331,7 @@ export default function HomePage() {
           )}
 
           {activeTab === "dashboard" && (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 text-slate-700">
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
                 <div className="h-12 w-12 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
                   <Users className="h-6 w-6" />
@@ -1091,25 +1344,21 @@ export default function HomePage() {
 
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
                 <div className="h-12 w-12 rounded-xl bg-green-100 text-green-600 flex items-center justify-center">
-                  <CheckCircle className="h-6 w-6" />
+                  <Truck className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-500 uppercase">Habilitados</h3>
-                  <p className="text-2xl font-bold text-slate-800">
-                    {users.filter((u) => u.habilitado).length}
-                  </p>
+                  <h3 className="text-sm font-semibold text-slate-500 uppercase">Total Vehículos</h3>
+                  <p className="text-2xl font-bold text-slate-800">{vehicles.length}</p>
                 </div>
               </div>
 
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                <div className="h-12 w-12 rounded-xl bg-red-100 text-red-600 flex items-center justify-center">
-                  <Lock className="h-6 w-6" />
+                <div className="h-12 w-12 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center">
+                  <ClipboardList className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-500 uppercase">Bloqueados</h3>
-                  <p className="text-2xl font-bold text-slate-800">
-                    {users.filter((u) => !u.habilitado).length}
-                  </p>
+                  <h3 className="text-sm font-semibold text-slate-500 uppercase">Preguntas Checklists</h3>
+                  <p className="text-2xl font-bold text-slate-800">{checklistQuestions.length}</p>
                 </div>
               </div>
             </div>
@@ -1117,7 +1366,7 @@ export default function HomePage() {
         </div>
       </main>
 
-      {/* CREATE MODAL */}
+      {/* CREATE USER MODAL */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden font-sans">
@@ -1246,7 +1495,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* EDIT MODAL */}
+      {/* EDIT USER MODAL */}
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden font-sans">
@@ -1369,7 +1618,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* DOCUMENTS MODAL */}
+      {/* DOCUMENTS USER MODAL */}
       {isDocModalOpen && selectedUser && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden font-sans">
@@ -1426,6 +1675,66 @@ export default function HomePage() {
                   className="bg-slate-900 text-white rounded-lg px-4 py-2 hover:bg-slate-800 transition-colors text-sm font-semibold"
                 >
                   Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VEHICLE QR MODAL */}
+      {isQRModalOpen && selectedVehicleForQR && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl border border-slate-200 overflow-hidden font-sans">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <QrCode className="h-5 w-5 text-blue-500" />
+                Código QR: {selectedVehicleForQR.codigo}
+              </h3>
+              <button
+                onClick={() => setIsQRModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-6 flex flex-col items-center text-center space-y-4">
+              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-150 shadow-inner flex items-center justify-center">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${selectedVehicleForQR.codigo}`}
+                  alt={`Código QR para el vehículo ${selectedVehicleForQR.codigo}`}
+                  className="h-44 w-44 select-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-lg font-bold text-slate-800">{selectedVehicleForQR.codigo}</div>
+                <div className="text-xs text-slate-500 font-medium">Patente: {selectedVehicleForQR.patente}</div>
+                <div className="text-xs text-slate-400 font-semibold uppercase">{selectedVehicleForQR.tipo_vehiculo}</div>
+              </div>
+
+              <p className="text-[11px] text-slate-400 font-medium leading-relaxed">
+                Este código QR puede ser escaneado por los choferes desde la APK de ScanQR para inicializar la ruta diaria.
+              </p>
+
+              <div className="flex gap-3 w-full pt-4 border-t border-slate-100">
+                <a
+                  href={`https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${selectedVehicleForQR.codigo}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 rounded-lg transition-colors"
+                >
+                  <Download className="h-4 w-4" />
+                  Descargar
+                </a>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold py-2.5 rounded-lg transition-colors"
+                >
+                  <Printer className="h-4 w-4" />
+                  Imprimir
                 </button>
               </div>
             </div>
