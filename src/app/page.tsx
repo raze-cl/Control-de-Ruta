@@ -32,7 +32,9 @@ import {
   QrCode,
   Download,
   Printer,
-  Upload
+  Upload,
+  MapPin,
+  Map
 } from "lucide-react";
 
 interface AppUser {
@@ -67,6 +69,24 @@ interface ChecklistQuestion {
   expected_answer: string;
 }
 
+interface Faena {
+  id: string;
+  nombre: string;
+  fecha_inicio_contrato: string;
+  fecha_fin_contrato: string;
+  created_at?: string;
+}
+
+interface FaenaPoint {
+  id: string;
+  faena_id: string;
+  codigo: string;
+  latitude: number;
+  longitude: number;
+  ultimo_registro_servicio?: string;
+  created_at?: string;
+}
+
 const MANDATORY_DOCS = [
   "Cédula Identidad",
   "Licencia Municipal",
@@ -75,7 +95,7 @@ const MANDATORY_DOCS = [
   "Certificado 2"
 ];
 
-const FAENAS = [
+const FAENAS_DEFAULT = [
   "SG",
   "DMH",
   "Subterranea",
@@ -143,6 +163,40 @@ export default function HomePage() {
   });
   const [vehicleFormError, setVehicleFormError] = useState("");
   const [savingVehicleForm, setSavingVehicleForm] = useState(false);
+
+  // Faenas State
+  const [faenas, setFaenas] = useState<Faena[]>([]);
+  const [loadingFaenas, setLoadingFaenas] = useState(true);
+  const [searchFaenaQuery, setSearchFaenaQuery] = useState("");
+  const [expandedFaenaIds, setExpandedFaenaIds] = useState<string[]>([]);
+  const [faenaPointsMap, setFaenaPointsMap] = useState<Record<string, FaenaPoint[]>>({});
+  const [loadingFaenaPoints, setLoadingFaenaPoints] = useState<Record<string, boolean>>({});
+
+  // Faenas CRUD Modals State
+  const [isFaenaCreateModalOpen, setIsFaenaCreateModalOpen] = useState(false);
+  const [isFaenaEditModalOpen, setIsFaenaEditModalOpen] = useState(false);
+  const [selectedFaena, setSelectedFaena] = useState<Faena | null>(null);
+  const [faenaFormData, setFaenaFormData] = useState({
+    nombre: "",
+    fecha_inicio_contrato: new Date().toISOString().substring(0, 10),
+    fecha_fin_contrato: new Date(new Date().setFullYear(new Date().getFullYear() + 3)).toISOString().substring(0, 10),
+  });
+  const [faenaFormError, setFaenaFormError] = useState("");
+  const [savingFaenaForm, setSavingFaenaForm] = useState(false);
+
+  // Faena Points CRUD Modal State
+  const [isPointModalOpen, setIsPointModalOpen] = useState(false);
+  const [selectedPoint, setSelectedPoint] = useState<FaenaPoint | null>(null);
+  const [selectedFaenaForPoint, setSelectedFaenaForPoint] = useState<Faena | null>(null);
+  const [pointFormData, setPointFormData] = useState({
+    codigo: "",
+    latitude: 0,
+    longitude: 0,
+  });
+  const [pointFormError, setPointFormError] = useState("");
+  const [savingPointForm, setSavingPointForm] = useState(false);
+  const [selectedPointForQR, setSelectedPointForQR] = useState<FaenaPoint | null>(null);
+  const [isPointQRModalOpen, setIsPointQRModalOpen] = useState(false);
 
   // Documents/Passes Upload Modal State
   const [isDocEditModalOpen, setIsDocEditModalOpen] = useState(false);
@@ -217,6 +271,24 @@ export default function HomePage() {
     }
   };
 
+  // Load faenas from Supabase
+  const fetchFaenas = async () => {
+    setLoadingFaenas(true);
+    try {
+      const { data, error } = await supabase
+        .from("faenas")
+        .select("*")
+        .order("nombre", { ascending: true });
+
+      if (error) throw error;
+      setFaenas(data || []);
+    } catch (err: any) {
+      console.error("Error fetching faenas:", err.message);
+    } finally {
+      setLoadingFaenas(false);
+    }
+  };
+
   // Load checklist questions from Supabase
   const fetchChecklistQuestions = async () => {
     setLoadingChecklists(true);
@@ -240,6 +312,7 @@ export default function HomePage() {
     if (isLoggedIn) {
       fetchUsers();
       fetchVehicles();
+      fetchFaenas();
       fetchChecklistQuestions();
     }
   }, [isLoggedIn]);
@@ -322,6 +395,22 @@ export default function HomePage() {
     }
   };
 
+  // Fetch faena points
+  const refreshFaenaPoints = async (faenaId: string) => {
+    try {
+      const { data: points, error } = await supabase
+        .from("faena_points")
+        .select("*")
+        .eq("faena_id", faenaId)
+        .order("codigo", { ascending: true });
+
+      if (error) throw error;
+      setFaenaPointsMap((prev) => ({ ...prev, [faenaId]: points || [] }));
+    } catch (err: any) {
+      console.error("Error loading faena points:", err.message);
+    }
+  };
+
   // Toggle User Row Expansion
   const toggleRow = async (userId: string) => {
     const isExpanded = expandedUserIds.includes(userId);
@@ -360,6 +449,26 @@ export default function HomePage() {
         await refreshVehicleDetails(vehicleId);
       } finally {
         setLoadingVehicleDetails((prev) => ({ ...prev, [vehicleId]: false }));
+      }
+    }
+  };
+
+  // Toggle Faena Row Expansion
+  const toggleFaenaRow = async (faenaId: string) => {
+    const isExpanded = expandedFaenaIds.includes(faenaId);
+    if (isExpanded) {
+      setExpandedFaenaIds(expandedFaenaIds.filter((id) => id !== faenaId));
+      return;
+    }
+
+    setExpandedFaenaIds([...expandedFaenaIds, faenaId]);
+
+    if (!faenaPointsMap[faenaId]) {
+      setLoadingFaenaPoints((prev) => ({ ...prev, [faenaId]: true }));
+      try {
+        await refreshFaenaPoints(faenaId);
+      } finally {
+        setLoadingFaenaPoints((prev) => ({ ...prev, [faenaId]: false }));
       }
     }
   };
@@ -434,6 +543,20 @@ export default function HomePage() {
     }
   };
 
+  // Delete Faena
+  const handleDeleteFaena = async (id: string) => {
+    if (!confirm("¿Estás seguro de que deseas eliminar esta faena? Se eliminarán todas sus rutas y puntos de control.")) return;
+
+    try {
+      const { error } = await supabase.from("faenas").delete().eq("id", id);
+      if (error) throw error;
+
+      setFaenas(faenas.filter((f) => f.id !== id));
+    } catch (err: any) {
+      alert("Error al eliminar faena: " + err.message);
+    }
+  };
+
   // Open Create Modal
   const openCreateModal = () => {
     setFormData({
@@ -498,15 +621,64 @@ export default function HomePage() {
     setIsVehicleEditModalOpen(true);
   };
 
+  // Open Faena Create Modal
+  const openFaenaCreateModal = () => {
+    setFaenaFormData({
+      nombre: "",
+      fecha_inicio_contrato: new Date().toISOString().substring(0, 10),
+      fecha_fin_contrato: new Date(new Date().setFullYear(new Date().getFullYear() + 3)).toISOString().substring(0, 10),
+    });
+    setFaenaFormError("");
+    setIsFaenaCreateModalOpen(true);
+  };
+
+  // Open Faena Edit Modal
+  const openFaenaEditModal = (faena: Faena) => {
+    setSelectedFaena(faena);
+    setFaenaFormData({
+      nombre: faena.nombre,
+      fecha_inicio_contrato: faena.fecha_inicio_contrato,
+      fecha_fin_contrato: faena.fecha_fin_contrato,
+    });
+    setFaenaFormError("");
+    setIsFaenaEditModalOpen(true);
+  };
+
+  // Open Point Create Modal
+  const openPointCreateModal = (faena: Faena) => {
+    setSelectedPoint(null);
+    setSelectedFaenaForPoint(faena);
+    setPointFormData({
+      codigo: "",
+      latitude: -22.9036,
+      longitude: -68.1998,
+    });
+    setPointFormError("");
+    setIsPointModalOpen(true);
+  };
+
+  // Open Point Edit Modal
+  const openPointEditModal = (faena: Faena, point: FaenaPoint) => {
+    setSelectedPoint(point);
+    setSelectedFaenaForPoint(faena);
+    setPointFormData({
+      codigo: point.codigo,
+      latitude: point.latitude,
+      longitude: point.longitude,
+    });
+    setPointFormError("");
+    setIsPointModalOpen(true);
+  };
+
   // Open Document Upload / Date edit Modal
   const openDocEditModal = (
     type: "user_doc" | "user_pass" | "vehicle_doc",
-    docName: String,
+    docName: string,
     targetId: string,
     currentDate?: string
   ) => {
     setSelectedDocType(type);
-    setSelectedDocName(String(docName));
+    setSelectedDocName(docName);
     setSelectedDocTargetId(targetId);
     setEditDocDate(currentDate || new Date().toISOString().substring(0, 10));
     setSimulatedFileName("");
@@ -712,6 +884,160 @@ export default function HomePage() {
     }
   };
 
+  // Submit Create Faena
+  const handleCreateFaena = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFaenaFormError("");
+
+    if (!faenaFormData.nombre || !faenaFormData.fecha_inicio_contrato || !faenaFormData.fecha_fin_contrato) {
+      setFaenaFormError("Por favor completa todos los campos.");
+      return;
+    }
+
+    setSavingFaenaForm(true);
+    try {
+      const { error } = await supabase
+        .from("faenas")
+        .insert([
+          {
+            nombre: faenaFormData.nombre.trim(),
+            fecha_inicio_contrato: faenaFormData.fecha_inicio_contrato,
+            fecha_fin_contrato: faenaFormData.fecha_fin_contrato,
+          },
+        ]);
+
+      if (error) {
+        if (error.code === "23505") {
+          setFaenaFormError("El nombre de la faena ya se encuentra registrado.");
+        } else {
+          throw error;
+        }
+        setSavingFaenaForm(false);
+        return;
+      }
+
+      setIsFaenaCreateModalOpen(false);
+      fetchFaenas();
+    } catch (err: any) {
+      setFaenaFormError(err.message);
+    } finally {
+      setSavingFaenaForm(false);
+    }
+  };
+
+  // Submit Edit Faena
+  const handleEditFaena = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFaenaFormError("");
+
+    if (!selectedFaena) return;
+    if (!faenaFormData.nombre || !faenaFormData.fecha_inicio_contrato || !faenaFormData.fecha_fin_contrato) {
+      setFaenaFormError("Por favor completa todos los campos.");
+      return;
+    }
+
+    setSavingFaenaForm(true);
+    try {
+      const { error } = await supabase
+        .from("faenas")
+        .update({
+          nombre: faenaFormData.nombre.trim(),
+          fecha_inicio_contrato: faenaFormData.fecha_inicio_contrato,
+          fecha_fin_contrato: faenaFormData.fecha_fin_contrato,
+        })
+        .eq("id", selectedFaena.id);
+
+      if (error) {
+        if (error.code === "23505") {
+          setFaenaFormError("El nombre de la faena ya se encuentra registrado.");
+        } else {
+          throw error;
+        }
+        setSavingFaenaForm(false);
+        return;
+      }
+
+      setIsFaenaEditModalOpen(false);
+      setSelectedFaena(null);
+      fetchFaenas();
+    } catch (err: any) {
+      setFaenaFormError(err.message);
+    } finally {
+      setSavingFaenaForm(false);
+    }
+  };
+
+  // Submit Create or Edit Route Point
+  const handleCreateOrUpdatePoint = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPointFormError("");
+
+    if (!selectedFaenaForPoint || !pointFormData.codigo || !pointFormData.latitude || !pointFormData.longitude) {
+      setPointFormError("Por favor completa todos los campos.");
+      return;
+    }
+
+    setSavingPointForm(true);
+    try {
+      if (selectedPoint) {
+        // Edit Mode
+        const { error } = await supabase
+          .from("faena_points")
+          .update({
+            codigo: pointFormData.codigo.trim(),
+            latitude: Number(pointFormData.latitude),
+            longitude: Number(pointFormData.longitude),
+          })
+          .eq("id", selectedPoint.id);
+
+        if (error) throw error;
+      } else {
+        // Create Mode
+        const { error } = await supabase
+          .from("faena_points")
+          .insert([
+            {
+              faena_id: selectedFaenaForPoint.id,
+              codigo: pointFormData.codigo.trim(),
+              latitude: Number(pointFormData.latitude),
+              longitude: Number(pointFormData.longitude),
+            },
+          ]);
+
+        if (error) {
+          if (error.code === "23505") {
+            setPointFormError("Este código de punto ya existe en la faena.");
+            setSavingPointForm(false);
+            return;
+          } else {
+            throw error;
+          }
+        }
+      }
+
+      setIsPointModalOpen(false);
+      refreshFaenaPoints(selectedFaenaForPoint.id);
+    } catch (err: any) {
+      setPointFormError(err.message);
+    } finally {
+      setSavingPointForm(false);
+    }
+  };
+
+  // Delete Route Point
+  const handleDeletePoint = async (faenaId: string, pointId: string) => {
+    if (!confirm("¿Estás seguro de que deseas eliminar este punto de control?")) return;
+
+    try {
+      const { error } = await supabase.from("faena_points").delete().eq("id", pointId);
+      if (error) throw error;
+
+      refreshFaenaPoints(faenaId);
+    } catch (err: any) {
+      alert("Error al eliminar punto: " + err.message);
+    }
+  };
+
   // Save Document Date and Simulated File Upload
   const handleSaveDoc = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -821,6 +1147,12 @@ export default function HomePage() {
     setIsQRModalOpen(true);
   };
 
+  // Open QR Code Modal for Faena Point
+  const openPointQRModal = (point: FaenaPoint) => {
+    setSelectedPointForQR(point);
+    setIsPointQRModalOpen(true);
+  };
+
   // Filtered Users List
   const filteredUsers = users.filter(
     (u) =>
@@ -837,6 +1169,12 @@ export default function HomePage() {
       v.tipo_vehiculo.toLowerCase().includes(searchVehicleQuery.toLowerCase()) ||
       (v.marca && v.marca.toLowerCase().includes(searchVehicleQuery.toLowerCase())) ||
       (v.modelo && v.modelo.toLowerCase().includes(searchVehicleQuery.toLowerCase()))
+  );
+
+  // Filtered Faenas List
+  const filteredFaenas = faenas.filter(
+    (f) =>
+      f.nombre.toLowerCase().includes(searchFaenaQuery.toLowerCase())
   );
 
   // Helper: check if a date is expired
@@ -856,6 +1194,13 @@ export default function HomePage() {
     const month = String(date.getUTCMonth() + 1).padStart(2, '0');
     const year = date.getUTCFullYear();
     return `${day}/${month}/${year}`;
+  };
+
+  // Helper: format Timestamp to readable string
+  const formatTimestampString = (timestampString?: string) => {
+    if (!timestampString) return "Sin registro de visitas";
+    const date = new Date(timestampString);
+    return date.toLocaleString();
   };
 
   // Render Login page if not authenticated
@@ -996,6 +1341,18 @@ export default function HomePage() {
           </button>
 
           <button
+            onClick={() => setActiveTab("faenas")}
+            className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+              activeTab === "faenas"
+                ? "bg-blue-600 text-white shadow"
+                : "text-slate-400 hover:bg-slate-800 hover:text-white"
+            }`}
+          >
+            <Map className="h-5 w-5 shrink-0" />
+            {isSidebarExpanded && <span>Faenas y Rutas</span>}
+          </button>
+
+          <button
             onClick={() => setActiveTab("checklists")}
             className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
               activeTab === "checklists"
@@ -1065,6 +1422,8 @@ export default function HomePage() {
               ? "Gestión de Usuarios APK"
               : activeTab === "vehicles"
               ? "Monitoreo y Gestión de Vehículos"
+              : activeTab === "faenas"
+              ? "Gestión de Faenas y Puntos de Rutas"
               : activeTab === "checklists"
               ? "Configuración de Encuestas / Checklists"
               : "Estadísticas y Monitoreo"}
@@ -1291,7 +1650,7 @@ export default function HomePage() {
                                             Pases Activos (Haga clic para editar)
                                           </h4>
                                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                            {FAENAS.map((faenaName) => {
+                                            {FAENAS_DEFAULT.map((faenaName) => {
                                               const record = (userPassesMap[user.id] || []).find(
                                                 (p) => p.faena_name === faenaName
                                               );
@@ -1536,6 +1895,211 @@ export default function HomePage() {
                                             );
                                           })}
                                         </div>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "faenas" && (
+            <div className="space-y-6">
+              {/* Action Controls */}
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                {/* Search Bar */}
+                <div className="relative flex-1 max-w-md">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                    <Search className="h-5 w-5" />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Buscar por nombre de faena..."
+                    value={searchFaenaQuery}
+                    onChange={(e) => setSearchFaenaQuery(e.target.value)}
+                    className="block w-full rounded-lg border border-slate-300 py-2 pl-10 pr-3 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
+                  />
+                </div>
+                {/* Add Faena Button */}
+                <button
+                  onClick={openFaenaCreateModal}
+                  className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 shadow transition-colors text-sm"
+                >
+                  <Plus className="h-5 w-5" />
+                  Agregar Faena
+                </button>
+              </div>
+
+              {/* Table Data Card */}
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                {loadingFaenas ? (
+                  <div className="flex flex-col items-center justify-center py-20 gap-3">
+                    <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600"></div>
+                    <span className="text-sm text-slate-500 font-medium">Cargando faenas...</span>
+                  </div>
+                ) : filteredFaenas.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center px-4">
+                    <AlertCircle className="h-16 w-16 text-slate-300 mb-4" />
+                    <h3 className="text-lg font-bold text-slate-800">No se encontraron faenas</h3>
+                    <p className="text-slate-500 mt-1 max-w-sm text-sm">
+                      Intenta modificar tu criterio de búsqueda.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-left text-sm text-slate-600">
+                      <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-200 font-semibold">
+                        <tr>
+                          <th className="px-6 py-4 w-10"></th>
+                          <th className="px-6 py-4">Nombre Faena</th>
+                          <th className="px-6 py-4">Inicio Contrato</th>
+                          <th className="px-6 py-4">Fin Contrato</th>
+                          <th className="px-6 py-4 text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredFaenas.map((faena) => {
+                          const isExpanded = expandedFaenaIds.includes(faena.id);
+                          return (
+                            <Fragment key={faena.id}>
+                              {/* Row structure */}
+                              <tr
+                                onClick={() => toggleFaenaRow(faena.id)}
+                                className={`cursor-pointer transition-colors ${
+                                  isExpanded ? "bg-slate-50/70" : "hover:bg-slate-50"
+                                }`}
+                              >
+                                <td className="px-6 py-4 text-slate-400">
+                                  {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                </td>
+                                <td className="px-6 py-4 font-bold text-slate-800">{faena.nombre}</td>
+                                <td className="px-6 py-4 font-semibold text-slate-700 font-mono">
+                                  {formatDateString(faena.fecha_inicio_contrato)}
+                                </td>
+                                <td className="px-6 py-4 font-semibold text-slate-700 font-mono">
+                                  {formatDateString(faena.fecha_fin_contrato)}
+                                </td>
+                                <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex justify-end gap-3">
+                                    <button
+                                      onClick={() => openFaenaEditModal(faena)}
+                                      className="text-slate-400 hover:text-blue-600 transition-colors"
+                                      title="Editar Faena"
+                                    >
+                                      <Edit2 className="h-4.5 w-4.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteFaena(faena.id)}
+                                      className="text-slate-400 hover:text-red-600 transition-colors"
+                                      title="Eliminar Faena"
+                                    >
+                                      <Trash2 className="h-4.5 w-4.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+
+                              {/* Expanded Row Content (Faena Points / Route) */}
+                              {isExpanded && (
+                                <tr className="bg-slate-50/40 border-l-4 border-l-blue-500">
+                                  <td colSpan={5} className="px-10 py-6 border-b border-slate-200">
+                                    {loadingFaenaPoints[faena.id] ? (
+                                      <div className="flex items-center gap-2 text-sm text-slate-500">
+                                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-500"></div>
+                                        Cargando puntos de ruta...
+                                      </div>
+                                    ) : (
+                                      <div>
+                                        <div className="flex items-center justify-between mb-4">
+                                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                                            <MapPin className="h-4 w-4 text-blue-500" />
+                                            Puntos de Ruta de la Faena
+                                          </h4>
+                                          <button
+                                            onClick={() => openPointCreateModal(faena)}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow transition-colors"
+                                          >
+                                            <Plus className="h-3.5 w-3.5" />
+                                            Agregar Punto
+                                          </button>
+                                        </div>
+
+                                        {(faenaPointsMap[faena.id] || []).length === 0 ? (
+                                          <div className="p-6 text-center border border-dashed border-slate-250 bg-white rounded-xl text-xs text-slate-450 font-medium">
+                                            No hay puntos de ruta agregados para esta faena. Agrega un punto para habilitar las rutas en la APK.
+                                          </div>
+                                        ) : (
+                                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                            {(faenaPointsMap[faena.id] || []).map((point) => (
+                                              <div
+                                                key={point.id}
+                                                className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3 relative hover:border-blue-300 transition-colors"
+                                              >
+                                                <div className="flex justify-between items-start gap-4">
+                                                  <div className="flex-1 min-w-0">
+                                                    <div className="text-sm font-bold text-slate-800 truncate" title={point.codigo}>
+                                                      {point.codigo}
+                                                    </div>
+                                                    <span className="text-[10px] text-slate-400 font-semibold font-mono">
+                                                      Lat: {point.latitude} • Lng: {point.longitude}
+                                                    </span>
+                                                  </div>
+                                                  <div className="flex gap-1.5 shrink-0">
+                                                    <button
+                                                      onClick={() => openPointQRModal(point)}
+                                                      className="text-slate-400 hover:text-blue-600 p-1 rounded hover:bg-slate-50 transition-colors"
+                                                      title="Generar QR"
+                                                    >
+                                                      <QrCode className="h-4 w-4" />
+                                                    </button>
+                                                    <button
+                                                      onClick={() => openPointEditModal(faena, point)}
+                                                      className="text-slate-400 hover:text-blue-600 p-1 rounded hover:bg-slate-50 transition-colors"
+                                                      title="Editar Punto"
+                                                    >
+                                                      <Edit2 className="h-4 w-4" />
+                                                    </button>
+                                                    <button
+                                                      onClick={() => handleDeletePoint(faena.id, point.id)}
+                                                      className="text-slate-400 hover:text-red-600 p-1 rounded hover:bg-slate-50 transition-colors"
+                                                      title="Eliminar Punto"
+                                                    >
+                                                      <Trash2 className="h-4 w-4" />
+                                                    </button>
+                                                  </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold border-t border-slate-100 pt-2 bg-slate-50/50 -mx-4 -mb-4 p-4 rounded-b-xl">
+                                                  <Calendar className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                                                  <div className="truncate">
+                                                    <span className="font-bold text-slate-400 block text-[9px] uppercase tracking-wider">Último Servicio:</span>
+                                                    <span className="text-slate-700 font-mono text-[11px]">
+                                                      {formatTimestampString(point.ultimo_registro_servicio)}
+                                                    </span>
+                                                  </div>
+                                                </div>
+
+                                                <a
+                                                  href={`https://www.google.com/maps?q=${point.latitude},${point.longitude}`}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className="absolute bottom-16 right-4 p-1.5 rounded-full bg-blue-50 border border-blue-150 text-blue-600 hover:bg-blue-100 transition-colors"
+                                                  title="Ver en Google Maps"
+                                                >
+                                                  <MapPin className="h-4 w-4" />
+                                                </a>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                                   </td>
@@ -1980,6 +2544,309 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* CREATE FAENA MODAL */}
+      {isFaenaCreateModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden font-sans">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-lg">Agregar Nueva Faena</h3>
+              <button
+                onClick={() => setIsFaenaCreateModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <form onSubmit={handleCreateFaena} className="p-6 space-y-4 text-slate-700">
+              {faenaFormError && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{faenaFormError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre de Faena *</label>
+                <input
+                  type="text"
+                  required
+                  value={faenaFormData.nombre}
+                  onChange={(e) => setFaenaFormData({ ...faenaFormData, nombre: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="Ej: Minera Pelambres"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Inicio de Contrato *</label>
+                  <input
+                    type="date"
+                    required
+                    value={faenaFormData.fecha_inicio_contrato}
+                    onChange={(e) => setFaenaFormData({ ...faenaFormData, fecha_inicio_contrato: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fin de Contrato *</label>
+                  <input
+                    type="date"
+                    required
+                    value={faenaFormData.fecha_fin_contrato}
+                    onChange={(e) => setFaenaFormData({ ...faenaFormData, fecha_fin_contrato: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsFaenaCreateModalOpen(false)}
+                  className="border border-slate-300 text-slate-600 rounded-lg px-4 py-2 hover:bg-slate-50 transition-colors text-sm font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingFaenaForm}
+                  className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors text-sm font-semibold disabled:bg-blue-400"
+                >
+                  {savingFaenaForm ? "Guardando..." : "Crear Faena"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT FAENA MODAL */}
+      {isFaenaEditModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden font-sans">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-lg">Modificar Faena</h3>
+              <button
+                onClick={() => setIsFaenaEditModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <form onSubmit={handleEditFaena} className="p-6 space-y-4 text-slate-700">
+              {faenaFormError && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{faenaFormError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre de Faena *</label>
+                <input
+                  type="text"
+                  required
+                  value={faenaFormData.nombre}
+                  onChange={(e) => setFaenaFormData({ ...faenaFormData, nombre: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Inicio de Contrato *</label>
+                  <input
+                    type="date"
+                    required
+                    value={faenaFormData.fecha_inicio_contrato}
+                    onChange={(e) => setFaenaFormData({ ...faenaFormData, fecha_inicio_contrato: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fin de Contrato *</label>
+                  <input
+                    type="date"
+                    required
+                    value={faenaFormData.fecha_fin_contrato}
+                    onChange={(e) => setFaenaFormData({ ...faenaFormData, fecha_fin_contrato: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsFaenaEditModalOpen(false)}
+                  className="border border-slate-300 text-slate-600 rounded-lg px-4 py-2 hover:bg-slate-50 transition-colors text-sm font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingFaenaForm}
+                  className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors text-sm font-semibold disabled:bg-blue-400"
+                >
+                  {savingFaenaForm ? "Guardando..." : "Modificar Faena"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE OR EDIT FAENA POINT MODAL */}
+      {isPointModalOpen && selectedFaenaForPoint && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden font-sans">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-lg">
+                {selectedPoint ? "Modificar Punto de Ruta" : "Agregar Punto de Ruta"}
+              </h3>
+              <button
+                onClick={() => setIsPointModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <form onSubmit={handleCreateOrUpdatePoint} className="p-6 space-y-4 text-slate-700">
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-150 text-xs">
+                <span className="font-bold text-slate-450 uppercase block">Faena de Destino:</span>
+                <span className="font-bold text-slate-800 text-sm">{selectedFaenaForPoint.nombre}</span>
+              </div>
+
+              {pointFormError && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{pointFormError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre / Código del Punto *</label>
+                <input
+                  type="text"
+                  required
+                  value={pointFormData.codigo}
+                  onChange={(e) => setPointFormData({ ...pointFormData, codigo: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="Ej: Punto A - Acceso Principal"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Latitud GPS *</label>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    required
+                    value={pointFormData.latitude}
+                    onChange={(e) => setPointFormData({ ...pointFormData, latitude: Number(e.target.value) })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="-22.9036"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Longitud GPS *</label>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    required
+                    value={pointFormData.longitude}
+                    onChange={(e) => setPointFormData({ ...pointFormData, longitude: Number(e.target.value) })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="-68.1998"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsPointModalOpen(false)}
+                  className="border border-slate-300 text-slate-600 rounded-lg px-4 py-2 hover:bg-slate-50 transition-colors text-sm font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingPointForm}
+                  className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors text-sm font-semibold disabled:bg-blue-400"
+                >
+                  {savingPointForm ? "Guardando..." : "Guardar Punto"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* FAENA POINT QR MODAL */}
+      {isPointQRModalOpen && selectedPointForQR && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl border border-slate-200 overflow-hidden font-sans">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <QrCode className="h-5 w-5 text-blue-500" />
+                QR Punto: {selectedPointForQR.codigo}
+              </h3>
+              <button
+                onClick={() => setIsPointQRModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-6 flex flex-col items-center text-center space-y-4">
+              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-150 shadow-inner flex items-center justify-center">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${selectedPointForQR.id}`}
+                  alt={`Código QR para el punto ${selectedPointForQR.codigo}`}
+                  className="h-44 w-44 select-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-base font-bold text-slate-800">{selectedPointForQR.codigo}</div>
+                <div className="text-[10px] text-slate-400 font-mono">ID: {selectedPointForQR.id}</div>
+              </div>
+
+              <p className="text-[11px] text-slate-400 font-medium leading-relaxed">
+                Este código QR puede imprimirse y colocarse en el punto físico de la faena. El chofer lo escaneará desde la APK para certificar su paso.
+              </p>
+
+              <div className="flex gap-3 w-full pt-4 border-t border-slate-100">
+                <a
+                  href={`https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${selectedPointForQR.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 rounded-lg transition-colors"
+                >
+                  <Download className="h-4 w-4" />
+                  Descargar
+                </a>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold py-2.5 rounded-lg transition-colors"
+                >
+                  <Printer className="h-4 w-4" />
+                  Imprimir
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* DOCUMENTS USER CONTRACT VIEW MODAL */}
       {isDocModalOpen && selectedUser && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -2040,266 +2907,6 @@ export default function HomePage() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* CREATE VEHICLE MODAL */}
-      {isVehicleCreateModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden font-sans">
-            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
-              <h3 className="font-bold text-lg">Agregar Nuevo Vehículo</h3>
-              <button
-                onClick={() => setIsVehicleCreateModalOpen(false)}
-                className="text-slate-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-            
-            <form onSubmit={handleCreateVehicle} className="p-6 space-y-4 text-slate-700">
-              {vehicleFormError && (
-                <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>{vehicleFormError}</span>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Código Interno *</label>
-                  <input
-                    type="text"
-                    required
-                    value={vehicleFormData.codigo}
-                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, codigo: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                    placeholder="V-107"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Patente *</label>
-                  <input
-                    type="text"
-                    required
-                    value={vehicleFormData.patente}
-                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, patente: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                    placeholder="AB-CD-34"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Marca *</label>
-                  <input
-                    type="text"
-                    required
-                    value={vehicleFormData.marca}
-                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, marca: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                    placeholder="Chevrolet"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Modelo *</label>
-                  <input
-                    type="text"
-                    required
-                    value={vehicleFormData.modelo}
-                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, modelo: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                    placeholder="D-Max"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Año *</label>
-                  <input
-                    type="number"
-                    required
-                    value={vehicleFormData.anio}
-                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, anio: Number(e.target.value) })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Vehículo</label>
-                  <select
-                    value={vehicleFormData.tipo_vehiculo}
-                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, tipo_vehiculo: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="Camioneta 4x4">Camioneta 4x4</option>
-                    <option value="Camión Tolva">Camión Tolva</option>
-                    <option value="Camión Aljibe">Camión Aljibe</option>
-                    <option value="Furgón de Personal">Furgón de Personal</option>
-                    <option value="Excavadora">Excavadora</option>
-                    <option value="Cargador Frontal">Cargador Frontal</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Estado Inicial</label>
-                  <select
-                    value={vehicleFormData.habilitado ? "true" : "false"}
-                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, habilitado: e.target.value === "true" })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="true">Activo / Operativo</option>
-                    <option value="false">Inactivo / En Mantención</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsVehicleCreateModalOpen(false)}
-                  className="border border-slate-300 text-slate-600 rounded-lg px-4 py-2 hover:bg-slate-50 transition-colors text-sm font-semibold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingVehicleForm}
-                  className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors text-sm font-semibold disabled:bg-blue-400"
-                >
-                  {savingVehicleForm ? "Guardando..." : "Crear Vehículo"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* EDIT VEHICLE MODAL */}
-      {isVehicleEditModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden font-sans">
-            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
-              <h3 className="font-bold text-lg">Modificar Vehículo</h3>
-              <button
-                onClick={() => setIsVehicleEditModalOpen(false)}
-                className="text-slate-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-            
-            <form onSubmit={handleEditVehicle} className="p-6 space-y-4 text-slate-700">
-              {vehicleFormError && (
-                <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>{vehicleFormError}</span>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Código Interno *</label>
-                  <input
-                    type="text"
-                    required
-                    value={vehicleFormData.codigo}
-                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, codigo: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Patente *</label>
-                  <input
-                    type="text"
-                    required
-                    value={vehicleFormData.patente}
-                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, patente: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Marca *</label>
-                  <input
-                    type="text"
-                    required
-                    value={vehicleFormData.marca}
-                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, marca: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Modelo *</label>
-                  <input
-                    type="text"
-                    required
-                    value={vehicleFormData.modelo}
-                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, modelo: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Año *</label>
-                  <input
-                    type="number"
-                    required
-                    value={vehicleFormData.anio}
-                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, anio: Number(e.target.value) })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Vehículo</label>
-                  <select
-                    value={vehicleFormData.tipo_vehiculo}
-                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, tipo_vehiculo: e.target.value })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="Camioneta 4x4">Camioneta 4x4</option>
-                    <option value="Camión Tolva">Camión Tolva</option>
-                    <option value="Camión Aljibe">Camión Aljibe</option>
-                    <option value="Furgón de Personal">Furgón de Personal</option>
-                    <option value="Excavadora">Excavadora</option>
-                    <option value="Cargador Frontal">Cargador Frontal</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Estado</label>
-                  <select
-                    value={vehicleFormData.habilitado ? "true" : "false"}
-                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, habilitado: e.target.value === "true" })}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="true">Activo / Operativo</option>
-                    <option value="false">Inactivo / En Mantención</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsVehicleEditModalOpen(false)}
-                  className="border border-slate-300 text-slate-600 rounded-lg px-4 py-2 hover:bg-slate-50 transition-colors text-sm font-semibold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingVehicleForm}
-                  className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors text-sm font-semibold disabled:bg-blue-400"
-                >
-                  {savingVehicleForm ? "Guardando..." : "Modificar Vehículo"}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
