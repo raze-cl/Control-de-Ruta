@@ -31,7 +31,8 @@ import {
   Truck,
   QrCode,
   Download,
-  Printer
+  Printer,
+  Upload
 } from "lucide-react";
 
 interface AppUser {
@@ -52,6 +53,10 @@ interface Vehicle {
   codigo: string;
   patente: string;
   tipo_vehiculo: string;
+  marca: string;
+  modelo: string;
+  anio: number;
+  habilitado: boolean;
   created_at?: string;
 }
 
@@ -122,6 +127,32 @@ export default function HomePage() {
   const [loadingVehicleDetails, setLoadingVehicleDetails] = useState<Record<string, boolean>>({});
   const [selectedVehicleForQR, setSelectedVehicleForQR] = useState<Vehicle | null>(null);
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
+
+  // Vehicles CRUD Modals State
+  const [isVehicleCreateModalOpen, setIsVehicleCreateModalOpen] = useState(false);
+  const [isVehicleEditModalOpen, setIsVehicleEditModalOpen] = useState(false);
+  const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
+  const [vehicleFormData, setVehicleFormData] = useState({
+    codigo: "",
+    patente: "",
+    tipo_vehiculo: "Camioneta 4x4",
+    marca: "",
+    modelo: "",
+    anio: new Date().getFullYear(),
+    habilitado: true,
+  });
+  const [vehicleFormError, setVehicleFormError] = useState("");
+  const [savingVehicleForm, setSavingVehicleForm] = useState(false);
+
+  // Documents/Passes Upload Modal State
+  const [isDocEditModalOpen, setIsDocEditModalOpen] = useState(false);
+  const [selectedDocType, setSelectedDocType] = useState<"user_doc" | "user_pass" | "vehicle_doc">("user_doc");
+  const [selectedDocName, setSelectedDocName] = useState("");
+  const [selectedDocTargetId, setSelectedDocTargetId] = useState(""); // user_id or vehicle_id
+  const [editDocDate, setEditDocDate] = useState("");
+  const [simulatedFileName, setSimulatedFileName] = useState("");
+  const [savingDoc, setSavingDoc] = useState(false);
+  const [docEditError, setDocEditError] = useState("");
 
   // Checklists Tab State
   const [checklistQuestions, setChecklistQuestions] = useState<ChecklistQuestion[]>([]);
@@ -257,6 +288,40 @@ export default function HomePage() {
     setLoginPassword("");
   };
 
+  // Fetch single user expanded details
+  const refreshUserDetails = async (userId: string) => {
+    try {
+      const { data: docs } = await supabase
+        .from("user_documents")
+        .select("*")
+        .eq("user_id", userId);
+
+      const { data: passes } = await supabase
+        .from("user_passes")
+        .select("*")
+        .eq("user_id", userId);
+
+      setUserDocsMap((prev) => ({ ...prev, [userId]: docs || [] }));
+      setUserPassesMap((prev) => ({ ...prev, [userId]: passes || [] }));
+    } catch (err: any) {
+      console.error("Error refreshing details:", err.message);
+    }
+  };
+
+  // Fetch single vehicle expanded details
+  const refreshVehicleDetails = async (vehicleId: string) => {
+    try {
+      const { data: docs } = await supabase
+        .from("vehicle_documents")
+        .select("*")
+        .eq("vehicle_id", vehicleId);
+
+      setVehicleDocsMap((prev) => ({ ...prev, [vehicleId]: docs || [] }));
+    } catch (err: any) {
+      console.error("Error refreshing details:", err.message);
+    }
+  };
+
   // Toggle User Row Expansion
   const toggleRow = async (userId: string) => {
     const isExpanded = expandedUserIds.includes(userId);
@@ -271,23 +336,7 @@ export default function HomePage() {
     if (!userDocsMap[userId] || !userPassesMap[userId]) {
       setLoadingDetails((prev) => ({ ...prev, [userId]: true }));
       try {
-        const { data: docs, error: errorDocs } = await supabase
-          .from("user_documents")
-          .select("*")
-          .eq("user_id", userId);
-
-        const { data: passes, error: errorPasses } = await supabase
-          .from("user_passes")
-          .select("*")
-          .eq("user_id", userId);
-
-        if (errorDocs) throw errorDocs;
-        if (errorPasses) throw errorPasses;
-
-        setUserDocsMap((prev) => ({ ...prev, [userId]: docs || [] }));
-        setUserPassesMap((prev) => ({ ...prev, [userId]: passes || [] }));
-      } catch (err: any) {
-        console.error("Error loading user documents/passes:", err.message);
+        await refreshUserDetails(userId);
       } finally {
         setLoadingDetails((prev) => ({ ...prev, [userId]: false }));
       }
@@ -308,15 +357,7 @@ export default function HomePage() {
     if (!vehicleDocsMap[vehicleId]) {
       setLoadingVehicleDetails((prev) => ({ ...prev, [vehicleId]: true }));
       try {
-        const { data: docs, error } = await supabase
-          .from("vehicle_documents")
-          .select("*")
-          .eq("vehicle_id", vehicleId);
-
-        if (error) throw error;
-        setVehicleDocsMap((prev) => ({ ...prev, [vehicleId]: docs || [] }));
-      } catch (err: any) {
-        console.error("Error loading vehicle docs:", err.message);
+        await refreshVehicleDetails(vehicleId);
       } finally {
         setLoadingVehicleDetails((prev) => ({ ...prev, [vehicleId]: false }));
       }
@@ -344,6 +385,27 @@ export default function HomePage() {
     }
   };
 
+  // Toggle vehicle active status
+  const toggleVehicleStatus = async (vehicle: Vehicle) => {
+    try {
+      const { error } = await supabase
+        .from("vehicles")
+        .update({ habilitado: !vehicle.habilitado })
+        .eq("id", vehicle.id);
+
+      if (error) throw error;
+      
+      // Update local state
+      setVehicles(
+        vehicles.map((v) =>
+          v.id === vehicle.id ? { ...v, habilitado: !vehicle.habilitado } : v
+        )
+      );
+    } catch (err: any) {
+      alert("Error al actualizar estado: " + err.message);
+    }
+  };
+
   // Delete User
   const handleDeleteUser = async (id: string) => {
     if (!confirm("¿Estás seguro de que deseas eliminar este usuario?")) return;
@@ -355,6 +417,20 @@ export default function HomePage() {
       setUsers(users.filter((u) => u.id !== id));
     } catch (err: any) {
       alert("Error al eliminar usuario: " + err.message);
+    }
+  };
+
+  // Delete Vehicle
+  const handleDeleteVehicle = async (id: string) => {
+    if (!confirm("¿Estás seguro de que deseas eliminar este vehículo?")) return;
+
+    try {
+      const { error } = await supabase.from("vehicles").delete().eq("id", id);
+      if (error) throw error;
+
+      setVehicles(vehicles.filter((v) => v.id !== id));
+    } catch (err: any) {
+      alert("Error al eliminar vehículo: " + err.message);
     }
   };
 
@@ -389,6 +465,53 @@ export default function HomePage() {
     });
     setFormError("");
     setIsEditModalOpen(true);
+  };
+
+  // Open Vehicle Create Modal
+  const openVehicleCreateModal = () => {
+    setVehicleFormData({
+      codigo: "",
+      patente: "",
+      tipo_vehiculo: "Camioneta 4x4",
+      marca: "",
+      modelo: "",
+      anio: new Date().getFullYear(),
+      habilitado: true,
+    });
+    setVehicleFormError("");
+    setIsVehicleCreateModalOpen(true);
+  };
+
+  // Open Vehicle Edit Modal
+  const openVehicleEditModal = (vehicle: Vehicle) => {
+    setSelectedVehicle(vehicle);
+    setVehicleFormData({
+      codigo: vehicle.codigo,
+      patente: vehicle.patente,
+      tipo_vehiculo: vehicle.tipo_vehiculo,
+      marca: vehicle.marca || "",
+      modelo: vehicle.modelo || "",
+      anio: vehicle.anio,
+      habilitado: vehicle.habilitado,
+    });
+    setVehicleFormError("");
+    setIsVehicleEditModalOpen(true);
+  };
+
+  // Open Document Upload / Date edit Modal
+  const openDocEditModal = (
+    type: "user_doc" | "user_pass" | "vehicle_doc",
+    docName: String,
+    targetId: string,
+    currentDate?: string
+  ) => {
+    setSelectedDocType(type);
+    setSelectedDocName(String(docName));
+    setSelectedDocTargetId(targetId);
+    setEditDocDate(currentDate || new Date().toISOString().substring(0, 10));
+    setSimulatedFileName("");
+    setDocEditError("");
+    setIsDocEditModalOpen(true);
   };
 
   // Submit Create User
@@ -482,8 +605,179 @@ export default function HomePage() {
     }
   };
 
+  // Submit Create Vehicle
+  const handleCreateVehicle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setVehicleFormError("");
+
+    if (!vehicleFormData.codigo || !vehicleFormData.patente || !vehicleFormData.marca || !vehicleFormData.modelo || !vehicleFormData.anio) {
+      setVehicleFormError("Por favor completa todos los campos obligatorios.");
+      return;
+    }
+
+    setSavingVehicleForm(true);
+    try {
+      // 1. Insert vehicle record
+      const { data, error } = await supabase
+        .from("vehicles")
+        .insert([
+          {
+            codigo: vehicleFormData.codigo.trim().toUpperCase(),
+            patente: vehicleFormData.patente.trim().toUpperCase(),
+            tipo_vehiculo: vehicleFormData.tipo_vehiculo,
+            marca: vehicleFormData.marca.trim(),
+            modelo: vehicleFormData.modelo.trim(),
+            anio: Number(vehicleFormData.anio),
+            habilitado: vehicleFormData.habilitado,
+          },
+        ])
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === "23505") {
+          setVehicleFormError("El Código Interno o la Patente ya están registrados.");
+        } else {
+          throw error;
+        }
+        setSavingVehicleForm(false);
+        return;
+      }
+
+      // 2. Automatically seed empty vehicle document configurations for this vehicle
+      const initialDocs = VEHICLE_DOCS.map((docName) => ({
+        vehicle_id: data.id,
+        document_name: docName,
+        fecha_vencimiento: new Date().toISOString().substring(0, 10) // default to today
+      }));
+
+      const { error: docsError } = await supabase
+        .from("vehicle_documents")
+        .insert(initialDocs);
+
+      if (docsError) throw docsError;
+
+      setIsVehicleCreateModalOpen(false);
+      fetchVehicles();
+    } catch (err: any) {
+      setVehicleFormError(err.message);
+    } finally {
+      setSavingVehicleForm(false);
+    }
+  };
+
+  // Submit Edit Vehicle
+  const handleEditVehicle = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setVehicleFormError("");
+
+    if (!selectedVehicle) return;
+    if (!vehicleFormData.codigo || !vehicleFormData.patente || !vehicleFormData.marca || !vehicleFormData.modelo || !vehicleFormData.anio) {
+      setVehicleFormError("Por favor completa todos los campos obligatorios.");
+      return;
+    }
+
+    setSavingVehicleForm(true);
+    try {
+      const { error } = await supabase
+        .from("vehicles")
+        .update({
+          codigo: vehicleFormData.codigo.trim().toUpperCase(),
+          patente: vehicleFormData.patente.trim().toUpperCase(),
+          tipo_vehiculo: vehicleFormData.tipo_vehiculo,
+          marca: vehicleFormData.marca.trim(),
+          modelo: vehicleFormData.modelo.trim(),
+          anio: Number(vehicleFormData.anio),
+          habilitado: vehicleFormData.habilitado,
+        })
+        .eq("id", selectedVehicle.id);
+
+      if (error) {
+        if (error.code === "23505") {
+          setVehicleFormError("El Código Interno o la Patente ya están registrados.");
+        } else {
+          throw error;
+        }
+        setSavingVehicleForm(false);
+        return;
+      }
+
+      setIsVehicleEditModalOpen(false);
+      setSelectedVehicle(null);
+      fetchVehicles();
+    } catch (err: any) {
+      setVehicleFormError(err.message);
+    } finally {
+      setSavingVehicleForm(false);
+    }
+  };
+
+  // Save Document Date and Simulated File Upload
+  const handleSaveDoc = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDocEditError("");
+
+    if (!editDocDate) {
+      setDocEditError("Debe ingresar una fecha de vencimiento válida.");
+      return;
+    }
+
+    setSavingDoc(true);
+    try {
+      if (selectedDocType === "user_doc") {
+        const { error } = await supabase
+          .from("user_documents")
+          .upsert(
+            {
+              user_id: selectedDocTargetId,
+              document_name: selectedDocName,
+              fecha_vencimiento: editDocDate,
+            },
+            { onConflict: "user_id,document_name" }
+          );
+
+        if (error) throw error;
+        await refreshUserDetails(selectedDocTargetId);
+      } else if (selectedDocType === "user_pass") {
+        const { error } = await supabase
+          .from("user_passes")
+          .upsert(
+            {
+              user_id: selectedDocTargetId,
+              faena_name: selectedDocName,
+              fecha_vencimiento: editDocDate,
+            },
+            { onConflict: "user_id,faena_name" }
+          );
+
+        if (error) throw error;
+        await refreshUserDetails(selectedDocTargetId);
+      } else if (selectedDocType === "vehicle_doc") {
+        const { error } = await supabase
+          .from("vehicle_documents")
+          .upsert(
+            {
+              vehicle_id: selectedDocTargetId,
+              document_name: selectedDocName,
+              fecha_vencimiento: editDocDate,
+            },
+            { onConflict: "vehicle_id,document_name" }
+          );
+
+        if (error) throw error;
+        await refreshVehicleDetails(selectedDocTargetId);
+      }
+
+      setIsDocEditModalOpen(false);
+    } catch (err: any) {
+      setDocEditError(err.message);
+    } finally {
+      setSavingDoc(false);
+    }
+  };
+
   // Open Documents Modal
-  const openDocModal = (user: AppUser) => {
+  const openDocModalForUser = (user: AppUser) => {
     setSelectedUser(user);
     setIsDocModalOpen(true);
   };
@@ -540,7 +834,9 @@ export default function HomePage() {
     (v) =>
       v.codigo.toLowerCase().includes(searchVehicleQuery.toLowerCase()) ||
       v.patente.toLowerCase().includes(searchVehicleQuery.toLowerCase()) ||
-      v.tipo_vehiculo.toLowerCase().includes(searchVehicleQuery.toLowerCase())
+      v.tipo_vehiculo.toLowerCase().includes(searchVehicleQuery.toLowerCase()) ||
+      (v.marca && v.marca.toLowerCase().includes(searchVehicleQuery.toLowerCase())) ||
+      (v.modelo && v.modelo.toLowerCase().includes(searchVehicleQuery.toLowerCase()))
   );
 
   // Helper: check if a date is expired
@@ -834,7 +1130,7 @@ export default function HomePage() {
                           <th className="px-6 py-4">Cargo</th>
                           <th className="px-6 py-4">Usuario APK</th>
                           <th className="px-6 py-4">Tipo</th>
-                          <th className="px-6 py-4 text-center">Documentos</th>
+                          <th className="px-6 py-4 text-center">Contrato</th>
                           <th className="px-6 py-4 text-center">Estado</th>
                           <th className="px-6 py-4 text-right">Acciones</th>
                         </tr>
@@ -873,7 +1169,7 @@ export default function HomePage() {
                                 </td>
                                 <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                                   <button
-                                    onClick={() => openDocModal(user)}
+                                    onClick={() => openDocModalForUser(user)}
                                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
                                       user.documento_url
                                         ? "border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
@@ -942,7 +1238,7 @@ export default function HomePage() {
                                         <div>
                                           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
                                             <FileText className="h-4 w-4 text-blue-500" />
-                                            Documentos del Trabajador (Obligatorios)
+                                            Documentos del Trabajador (Haga clic para editar)
                                           </h4>
                                           <div className="space-y-2">
                                             {MANDATORY_DOCS.map((docName) => {
@@ -953,9 +1249,12 @@ export default function HomePage() {
                                               return (
                                                 <div
                                                   key={docName}
-                                                  className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 bg-white shadow-sm"
+                                                  onClick={() => openDocEditModal("user_doc", docName, user.id, record?.fecha_vencimiento)}
+                                                  className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 bg-white shadow-sm hover:border-blue-400 hover:shadow transition-all cursor-pointer"
                                                 >
-                                                  <span className="text-sm font-semibold text-slate-700">{docName}</span>
+                                                  <span className="text-sm font-semibold text-slate-750 hover:text-blue-600 transition-colors">
+                                                    {docName}
+                                                  </span>
                                                   <div className="flex items-center gap-2">
                                                     <span className="text-xs text-slate-500 flex items-center gap-1 font-mono">
                                                       <Calendar className="h-3.5 w-3.5" />
@@ -989,7 +1288,7 @@ export default function HomePage() {
                                         <div>
                                           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
                                             <ClipboardList className="h-4 w-4 text-purple-500" />
-                                            Pases Activos (Faenas)
+                                            Pases Activos (Haga clic para editar)
                                           </h4>
                                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                             {FAENAS.map((faenaName) => {
@@ -1000,10 +1299,13 @@ export default function HomePage() {
                                               return (
                                                 <div
                                                   key={faenaName}
-                                                  className="flex flex-col p-2.5 rounded-lg border border-slate-200 bg-white shadow-sm"
+                                                  onClick={() => openDocEditModal("user_pass", faenaName, user.id, record?.fecha_vencimiento)}
+                                                  className="flex flex-col p-2.5 rounded-lg border border-slate-200 bg-white shadow-sm hover:border-blue-400 hover:shadow transition-all cursor-pointer"
                                                 >
                                                   <div className="flex items-center justify-between mb-1.5">
-                                                    <span className="text-sm font-bold text-slate-800">{faenaName}</span>
+                                                    <span className="text-sm font-bold text-slate-800 hover:text-blue-600 transition-colors">
+                                                      {faenaName}
+                                                    </span>
                                                     {record ? (
                                                       expired ? (
                                                         <span className="rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-bold text-red-700">
@@ -1056,12 +1358,20 @@ export default function HomePage() {
                   </span>
                   <input
                     type="text"
-                    placeholder="Buscar por código, patente o tipo..."
+                    placeholder="Buscar por código, patente, marca, modelo o tipo..."
                     value={searchVehicleQuery}
                     onChange={(e) => setSearchVehicleQuery(e.target.value)}
                     className="block w-full rounded-lg border border-slate-300 py-2 pl-10 pr-3 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
                   />
                 </div>
+                {/* Add Vehicle Button */}
+                <button
+                  onClick={openVehicleCreateModal}
+                  className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 shadow transition-colors text-sm"
+                >
+                  <Plus className="h-5 w-5" />
+                  Agregar Vehículo
+                </button>
               </div>
 
               {/* Table Data Card */}
@@ -1085,10 +1395,12 @@ export default function HomePage() {
                       <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-200 font-semibold">
                         <tr>
                           <th className="px-6 py-4 w-10"></th>
-                          <th className="px-6 py-4">Código Interno</th>
-                          <th className="px-6 py-4">Patente</th>
-                          <th className="px-6 py-4">Tipo de Vehículo</th>
+                          <th className="px-6 py-4">Código / Patente</th>
+                          <th className="px-6 py-4">Vehículo</th>
+                          <th className="px-6 py-4">Tipo</th>
                           <th className="px-6 py-4 text-center">Código QR</th>
+                          <th className="px-6 py-4 text-center">Estado</th>
+                          <th className="px-6 py-4 text-right">Acciones</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -1106,8 +1418,16 @@ export default function HomePage() {
                                 <td className="px-6 py-4 text-slate-400">
                                   {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                                 </td>
-                                <td className="px-6 py-4 font-bold text-slate-800">{vehicle.codigo}</td>
-                                <td className="px-6 py-4 font-mono font-semibold text-slate-700">{vehicle.patente}</td>
+                                <td className="px-6 py-4">
+                                  <div className="font-bold text-slate-800">{vehicle.codigo}</div>
+                                  <div className="text-xs text-slate-400 font-mono font-semibold">Patente: {vehicle.patente}</div>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="font-semibold text-slate-700">
+                                    {vehicle.marca || "Sin Marca"} {vehicle.modelo || ""}
+                                  </div>
+                                  <div className="text-xs text-slate-400 font-medium">Año: {vehicle.anio || "N/A"}</div>
+                                </td>
                                 <td className="px-6 py-4 font-medium text-slate-600">{vehicle.tipo_vehiculo}</td>
                                 <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                                   <button
@@ -1118,12 +1438,53 @@ export default function HomePage() {
                                     Generar QR
                                   </button>
                                 </td>
+                                <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => toggleVehicleStatus(vehicle)}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                                      vehicle.habilitado
+                                        ? "border-green-200 bg-green-50 text-green-700 hover:border-green-300"
+                                        : "border-red-200 bg-red-50 text-red-700 hover:border-red-300"
+                                    }`}
+                                    title={vehicle.habilitado ? "Desactivar Vehículo" : "Activar Vehículo"}
+                                  >
+                                    {vehicle.habilitado ? (
+                                      <>
+                                        <Unlock className="h-3.5 w-3.5" />
+                                        <span>Activo</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Lock className="h-3.5 w-3.5" />
+                                        <span>Inactivo</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </td>
+                                <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex justify-end gap-3">
+                                    <button
+                                      onClick={() => openVehicleEditModal(vehicle)}
+                                      className="text-slate-400 hover:text-blue-600 transition-colors"
+                                      title="Editar Vehículo"
+                                    >
+                                      <Edit2 className="h-4.5 w-4.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteVehicle(vehicle.id)}
+                                      className="text-slate-400 hover:text-red-600 transition-colors"
+                                      title="Eliminar Vehículo"
+                                    >
+                                      <Trash2 className="h-4.5 w-4.5" />
+                                    </button>
+                                  </div>
+                                </td>
                               </tr>
 
                               {/* Expanded Row Content */}
                               {isExpanded && (
                                 <tr className="bg-slate-50/40 border-l-4 border-l-blue-500">
-                                  <td colSpan={5} className="px-10 py-6 border-b border-slate-200">
+                                  <td colSpan={7} className="px-10 py-6 border-b border-slate-200">
                                     {loadingVehicleDetails[vehicle.id] ? (
                                       <div className="flex items-center gap-2 text-sm text-slate-500">
                                         <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-500"></div>
@@ -1133,7 +1494,7 @@ export default function HomePage() {
                                       <div>
                                         <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
                                           <FileText className="h-4 w-4 text-blue-500" />
-                                          Vencimiento de Documentación Obligatoria
+                                          Vencimiento de Documentación Obligatoria (Haga clic para editar)
                                         </h4>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                                           {VEHICLE_DOCS.map((docName) => {
@@ -1144,9 +1505,10 @@ export default function HomePage() {
                                             return (
                                               <div
                                                 key={docName}
-                                                className="flex flex-col p-3 rounded-lg border border-slate-200 bg-white shadow-sm"
+                                                onClick={() => openDocEditModal("vehicle_doc", docName, vehicle.id, record?.fecha_vencimiento)}
+                                                className="flex flex-col p-3 rounded-lg border border-slate-200 bg-white shadow-sm hover:border-blue-400 hover:shadow transition-all cursor-pointer"
                                               >
-                                                <span className="text-xs font-bold text-slate-500 uppercase truncate mb-1" title={docName}>
+                                                <span className="text-xs font-bold text-slate-500 uppercase truncate mb-1 hover:text-blue-600 transition-colors" title={docName}>
                                                   {docName}
                                                 </span>
                                                 <div className="flex items-center justify-between mt-1">
@@ -1618,7 +1980,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* DOCUMENTS USER MODAL */}
+      {/* DOCUMENTS USER CONTRACT VIEW MODAL */}
       {isDocModalOpen && selectedUser && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden font-sans">
@@ -1678,6 +2040,357 @@ export default function HomePage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE VEHICLE MODAL */}
+      {isVehicleCreateModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden font-sans">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-lg">Agregar Nuevo Vehículo</h3>
+              <button
+                onClick={() => setIsVehicleCreateModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <form onSubmit={handleCreateVehicle} className="p-6 space-y-4 text-slate-700">
+              {vehicleFormError && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{vehicleFormError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Código Interno *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.codigo}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, codigo: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="V-107"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Patente *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.patente}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, patente: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="AB-CD-34"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Marca *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.marca}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, marca: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Chevrolet"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Modelo *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.modelo}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, modelo: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="D-Max"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Año *</label>
+                  <input
+                    type="number"
+                    required
+                    value={vehicleFormData.anio}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, anio: Number(e.target.value) })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Vehículo</label>
+                  <select
+                    value={vehicleFormData.tipo_vehiculo}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, tipo_vehiculo: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="Camioneta 4x4">Camioneta 4x4</option>
+                    <option value="Camión Tolva">Camión Tolva</option>
+                    <option value="Camión Aljibe">Camión Aljibe</option>
+                    <option value="Furgón de Personal">Furgón de Personal</option>
+                    <option value="Excavadora">Excavadora</option>
+                    <option value="Cargador Frontal">Cargador Frontal</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Estado Inicial</label>
+                  <select
+                    value={vehicleFormData.habilitado ? "true" : "false"}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, habilitado: e.target.value === "true" })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="true">Activo / Operativo</option>
+                    <option value="false">Inactivo / En Mantención</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsVehicleCreateModalOpen(false)}
+                  className="border border-slate-300 text-slate-600 rounded-lg px-4 py-2 hover:bg-slate-50 transition-colors text-sm font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingVehicleForm}
+                  className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors text-sm font-semibold disabled:bg-blue-400"
+                >
+                  {savingVehicleForm ? "Guardando..." : "Crear Vehículo"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT VEHICLE MODAL */}
+      {isVehicleEditModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden font-sans">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-lg">Modificar Vehículo</h3>
+              <button
+                onClick={() => setIsVehicleEditModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <form onSubmit={handleEditVehicle} className="p-6 space-y-4 text-slate-700">
+              {vehicleFormError && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{vehicleFormError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Código Interno *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.codigo}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, codigo: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Patente *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.patente}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, patente: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Marca *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.marca}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, marca: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Modelo *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.modelo}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, modelo: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Año *</label>
+                  <input
+                    type="number"
+                    required
+                    value={vehicleFormData.anio}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, anio: Number(e.target.value) })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Vehículo</label>
+                  <select
+                    value={vehicleFormData.tipo_vehiculo}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, tipo_vehiculo: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="Camioneta 4x4">Camioneta 4x4</option>
+                    <option value="Camión Tolva">Camión Tolva</option>
+                    <option value="Camión Aljibe">Camión Aljibe</option>
+                    <option value="Furgón de Personal">Furgón de Personal</option>
+                    <option value="Excavadora">Excavadora</option>
+                    <option value="Cargador Frontal">Cargador Frontal</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Estado</label>
+                  <select
+                    value={vehicleFormData.habilitado ? "true" : "false"}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, habilitado: e.target.value === "true" })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="true">Activo / Operativo</option>
+                    <option value="false">Inactivo / En Mantención</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsVehicleEditModalOpen(false)}
+                  className="border border-slate-300 text-slate-600 rounded-lg px-4 py-2 hover:bg-slate-50 transition-colors text-sm font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingVehicleForm}
+                  className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors text-sm font-semibold disabled:bg-blue-400"
+                >
+                  {savingVehicleForm ? "Guardando..." : "Modificar Vehículo"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DOCUMENT DATE EDIT AND SIMULATED UPLOAD MODAL */}
+      {isDocEditModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden font-sans">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <FileText className="h-5 w-5 text-blue-500" />
+                Actualizar {selectedDocName}
+              </h3>
+              <button
+                onClick={() => setIsDocEditModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <form onSubmit={handleSaveDoc} className="p-6 space-y-5 text-slate-700">
+              {docEditError && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{docEditError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-2">
+                  Fecha de Vencimiento
+                </label>
+                <div className="relative">
+                  <input
+                    type="date"
+                    required
+                    value={editDocDate}
+                    onChange={(e) => setEditDocDate(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-slate-800 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-2">
+                  Cargar Archivo de Respaldo (Simulado)
+                </label>
+                <div className="border-2 border-dashed border-slate-300 hover:border-blue-400 rounded-xl p-6 text-center cursor-pointer transition-colors relative">
+                  <input
+                    type="file"
+                    accept=".pdf,.png,.jpg,.jpeg"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        setSimulatedFileName(e.target.files[0].name);
+                      }
+                    }}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                  <Upload className="h-8 w-8 text-slate-400 mx-auto mb-2" />
+                  {simulatedFileName ? (
+                    <div className="space-y-1">
+                      <p className="text-xs font-bold text-green-600 truncate">{simulatedFileName}</p>
+                      <p className="text-[10px] text-slate-450">¡Archivo listo para cargar!</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold text-slate-650">Arrastra o selecciona un archivo</p>
+                      <p className="text-[10px] text-slate-400">PDF, PNG o JPG hasta 10MB</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsDocEditModalOpen(false)}
+                  className="border border-slate-300 text-slate-600 rounded-lg px-4 py-2 hover:bg-slate-50 transition-colors text-sm font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingDoc}
+                  className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors text-sm font-semibold disabled:bg-blue-400"
+                >
+                  {savingDoc ? "Guardando..." : "Guardar Cambios"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
