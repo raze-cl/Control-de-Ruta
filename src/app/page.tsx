@@ -59,6 +59,8 @@ interface AppUser {
   habilitado: boolean;
   documento_url?: string;
   created_at?: string;
+  email?: string;
+  recibe_notificaciones?: boolean;
 }
 
 interface Vehicle {
@@ -133,6 +135,13 @@ export default function HomePage() {
   const [loginError, setLoginError] = useState("");
   const [loadingLogin, setLoadingLogin] = useState(false);
   const [currentAdmin, setCurrentAdmin] = useState<AppUser | null>(null);
+
+  // Recovery State
+  const [showPasswordRecovery, setShowPasswordRecovery] = useState(false);
+  const [recoveryEmail, setRecoveryEmail] = useState("");
+  const [recoveryError, setRecoveryError] = useState("");
+  const [recoverySuccess, setRecoverySuccess] = useState("");
+  const [loadingRecovery, setLoadingRecovery] = useState(false);
 
   // App Layout State
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
@@ -270,6 +279,8 @@ export default function HomePage() {
     password: "",
     documento_url: "",
     habilitado: true,
+    email: "",
+    recibe_notificaciones: false,
   });
   const [formError, setFormError] = useState("");
   const [savingForm, setSavingForm] = useState(false);
@@ -448,6 +459,37 @@ export default function HomePage() {
     setCurrentAdmin(null);
     setLoginUsername("");
     setLoginPassword("");
+  };
+
+  // Handle Recover Password
+  const handleRecoverPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoveryError("");
+    setRecoverySuccess("");
+    setLoadingRecovery(true);
+
+    try {
+      const response = await fetch("/api/recover-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email: recoveryEmail }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Error al enviar el correo.");
+      }
+
+      setRecoverySuccess(data.message || "Se ha enviado un correo con tus credenciales.");
+      setRecoveryEmail("");
+    } catch (err: any) {
+      setRecoveryError(err.message || "Error al conectar con el servidor.");
+    } finally {
+      setLoadingRecovery(false);
+    }
   };
 
   // Fetch single user expanded details
@@ -657,6 +699,8 @@ export default function HomePage() {
       password: "",
       documento_url: "",
       habilitado: true,
+      email: "",
+      recibe_notificaciones: false,
     });
     setFormError("");
     setIsCreateModalOpen(true);
@@ -674,6 +718,8 @@ export default function HomePage() {
       password: user.password || "",
       documento_url: user.documento_url || "",
       habilitado: user.habilitado,
+      email: user.email || "",
+      recibe_notificaciones: user.recibe_notificaciones || false,
     });
     setFormError("");
     setIsEditModalOpen(true);
@@ -797,6 +843,8 @@ export default function HomePage() {
           password: formData.password,
           documento_url: formData.documento_url.trim() || null,
           habilitado: formData.habilitado,
+          email: formData.email.trim() || null,
+          recibe_notificaciones: formData.recibe_notificaciones,
         },
       ]);
 
@@ -843,6 +891,8 @@ export default function HomePage() {
           password: formData.password,
           documento_url: formData.documento_url.trim() || null,
           habilitado: formData.habilitado,
+          email: formData.email.trim() || null,
+          recibe_notificaciones: formData.recibe_notificaciones,
         })
         .eq("id", selectedUser.id);
 
@@ -1394,78 +1444,158 @@ export default function HomePage() {
   if (!isLoggedIn) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-12 sm:px-6 lg:px-8">
-        <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-xl border border-slate-200">
-          <div className="flex flex-col items-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg">
-              <Users className="h-9 w-9" />
+        {showPasswordRecovery ? (
+          <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-xl border border-slate-200">
+            <div className="flex flex-col items-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg">
+                <Lock className="h-9 w-9" />
+              </div>
+              <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-slate-800">
+                Recuperar Contraseña
+              </h2>
+              <p className="mt-2 text-center text-sm text-slate-500">
+                Ingresa tu correo registrado para recibir tus credenciales
+              </p>
             </div>
-            <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-slate-800">
-              Control Panel Administrador
-            </h2>
-            <p className="mt-2 text-center text-sm text-slate-500">
-              Inicia sesión para gestionar los accesos de la APK
-            </p>
+
+            {recoveryError && (
+              <div className="flex items-center gap-2 rounded-lg bg-red-50 p-4 text-sm text-red-600 border border-red-100">
+                <AlertCircle className="h-5 w-5 shrink-0" />
+                <span>{recoveryError}</span>
+              </div>
+            )}
+
+            {recoverySuccess && (
+              <div className="flex items-center gap-2 rounded-lg bg-green-50 p-4 text-sm text-green-700 border border-green-150">
+                <Check className="h-5 w-5 shrink-0" />
+                <span>{recoverySuccess}</span>
+              </div>
+            )}
+
+            <form className="mt-8 space-y-6" onSubmit={handleRecoverPassword}>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">
+                  Correo Electrónico
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={recoveryEmail}
+                  onChange={(e) => setRecoveryEmail(e.target.value)}
+                  className="block w-full rounded-lg border border-slate-300 py-2.5 px-3 text-slate-850 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
+                  placeholder="ejemplo@correo.com"
+                />
+              </div>
+
+              <div className="space-y-3">
+                <button
+                  type="submit"
+                  disabled={loadingRecovery}
+                  className="flex w-full justify-center rounded-lg bg-blue-600 py-3 px-4 text-sm font-bold text-white shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:bg-blue-400"
+                >
+                  {loadingRecovery ? "Enviando..." : "Enviar Contraseña"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPasswordRecovery(false);
+                    setRecoveryError("");
+                    setRecoverySuccess("");
+                  }}
+                  className="flex w-full justify-center rounded-lg border border-slate-300 bg-white py-2.5 px-4 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none transition-colors"
+                >
+                  Volver al Inicio de Sesión
+                </button>
+              </div>
+            </form>
           </div>
-
-          {loginError && (
-            <div className="flex items-center gap-2 rounded-lg bg-red-50 p-4 text-sm text-red-600 border border-red-100">
-              <AlertCircle className="h-5 w-5 shrink-0" />
-              <span>{loginError}</span>
+        ) : (
+          <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-xl border border-slate-200">
+            <div className="flex flex-col items-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg">
+                <Users className="h-9 w-9" />
+              </div>
+              <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-slate-800">
+                Control Panel Administrador
+              </h2>
+              <p className="mt-2 text-center text-sm text-slate-500">
+                Inicia sesión para gestionar los accesos de la APK
+              </p>
             </div>
-          )}
 
-          <form className="mt-8 space-y-6" onSubmit={handleLogin}>
-            <div className="space-y-4 rounded-md">
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">
-                  Nombre de Usuario
-                </label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-                    <User className="h-5 w-5" />
-                  </span>
-                  <input
-                    type="text"
-                    required
-                    value={loginUsername}
-                    onChange={(e) => setLoginUsername(e.target.value)}
-                    className="block w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
-                    placeholder="Usuario admin"
-                  />
+            {loginError && (
+              <div className="flex items-center gap-2 rounded-lg bg-red-50 p-4 text-sm text-red-600 border border-red-100">
+                <AlertCircle className="h-5 w-5 shrink-0" />
+                <span>{loginError}</span>
+              </div>
+            )}
+
+            <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+              <div className="space-y-4 rounded-md">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Nombre de Usuario
+                  </label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                      <User className="h-5 w-5" />
+                    </span>
+                    <input
+                      type="text"
+                      required
+                      value={loginUsername}
+                      onChange={(e) => setLoginUsername(e.target.value)}
+                      className="block w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
+                      placeholder="Usuario admin"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Contraseña
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPasswordRecovery(true);
+                        setLoginError("");
+                      }}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-700"
+                    >
+                      ¿Olvidaste tu contraseña?
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                      <Lock className="h-5 w-5" />
+                    </span>
+                    <input
+                      type="password"
+                      required
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                      className="block w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
+                      placeholder="••••••••"
+                    />
+                  </div>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">
-                  Contraseña
-                </label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-                    <Lock className="h-5 w-5" />
-                  </span>
-                  <input
-                    type="password"
-                    required
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    className="block w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
-                    placeholder="••••••••"
-                  />
-                </div>
+                <button
+                  type="submit"
+                  disabled={loadingLogin}
+                  className="flex w-full justify-center rounded-lg bg-blue-600 py-3 px-4 text-sm font-bold text-white shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:bg-blue-400"
+                >
+                  {loadingLogin ? "Validando..." : "Ingresar"}
+                </button>
               </div>
-            </div>
-
-            <div>
-              <button
-                type="submit"
-                disabled={loadingLogin}
-                className="flex w-full justify-center rounded-lg bg-blue-600 py-3 px-4 text-sm font-bold text-white shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:bg-blue-400"
-              >
-                {loadingLogin ? "Validando..." : "Ingresar"}
-              </button>
-            </div>
-          </form>
-        </div>
+            </form>
+          </div>
+        )}
       </div>
     );
   }
@@ -1701,17 +1831,31 @@ export default function HomePage() {
                                   <div className="text-xs text-slate-400 font-medium">RUT: {user.rut}</div>
                                 </td>
                                 <td className="px-6 py-4 font-medium text-slate-700">{user.cargo}</td>
-                                <td className="px-6 py-4 font-mono font-medium text-slate-600">{user.username}</td>
                                 <td className="px-6 py-4">
-                                  <span
-                                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                                      user.tipo_usuario === "admin"
-                                        ? "bg-purple-100 text-purple-700"
-                                        : "bg-blue-100 text-blue-700"
-                                    }`}
-                                  >
-                                    {user.tipo_usuario === "admin" ? "Admin" : "Chofer"}
-                                  </span>
+                                  <div className="font-mono font-medium text-slate-600">{user.username}</div>
+                                  {user.email && (
+                                    <div className="text-[10px] text-slate-400 italic truncate max-w-[150px]" title={user.email}>
+                                      {user.email}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="flex flex-col gap-1 items-start">
+                                    <span
+                                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                        user.tipo_usuario === "admin"
+                                          ? "bg-purple-100 text-purple-700"
+                                          : "bg-blue-100 text-blue-700"
+                                      }`}
+                                    >
+                                      {user.tipo_usuario === "admin" ? "Admin" : "Chofer"}
+                                    </span>
+                                    {user.tipo_usuario === "admin" && user.recibe_notificaciones && (
+                                      <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[8px] font-bold bg-green-150 text-green-750 uppercase tracking-wider">
+                                        🔔 Notificar
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                                   <button
@@ -2847,6 +2991,34 @@ export default function HomePage() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Correo Electrónico (Opcional para chofer, Obligatorio para notificaciones)</label>
+                  <input
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="admin@empresa.com"
+                  />
+                </div>
+                
+                {formData.tipo_usuario === "admin" && (
+                  <div className="flex items-center gap-2 pt-5">
+                    <input
+                      type="checkbox"
+                      id="create-recibe-notificaciones"
+                      checked={formData.recibe_notificaciones}
+                      onChange={(e) => setFormData({ ...formData, recibe_notificaciones: e.target.checked })}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                    />
+                    <label htmlFor="create-recibe-notificaciones" className="text-xs font-bold text-slate-700 uppercase cursor-pointer select-none">
+                      Recibe Notificaciones
+                    </label>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">URL de Documento (Opcional)</label>
                 <input
@@ -2969,6 +3141,34 @@ export default function HomePage() {
                     className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Correo Electrónico</label>
+                  <input
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="admin@empresa.com"
+                  />
+                </div>
+                
+                {formData.tipo_usuario === "admin" && (
+                  <div className="flex items-center gap-2 pt-5">
+                    <input
+                      type="checkbox"
+                      id="edit-recibe-notificaciones"
+                      checked={formData.recibe_notificaciones}
+                      onChange={(e) => setFormData({ ...formData, recibe_notificaciones: e.target.checked })}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                    />
+                    <label htmlFor="edit-recibe-notificaciones" className="text-xs font-bold text-slate-700 uppercase cursor-pointer select-none">
+                      Recibe Notificaciones
+                    </label>
+                  </div>
+                )}
               </div>
 
               <div>
