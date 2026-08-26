@@ -222,11 +222,27 @@ export default function HomePage() {
   const [docEditError, setDocEditError] = useState("");
 
   // Checklists Tab State
-  const [checklistQuestions, setChecklistQuestions] = useState<ChecklistQuestion[]>([]);
+  const [checklistQuestions, setChecklistQuestions] = useState<any[]>([]);
   const [loadingChecklists, setLoadingChecklists] = useState(true);
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
   const [editQuestionText, setEditQuestionText] = useState("");
   const [editExpectedAnswer, setEditExpectedAnswer] = useState("si");
+  const [editQuestionType, setEditQuestionType] = useState("binaria");
+  const [editQuestionIsOptional, setEditQuestionIsOptional] = useState(false);
+
+  // Checklist Sections State
+  const [checklistSections, setChecklistSections] = useState<{ id: string; titulo: string }[]>([]);
+  const [loadingSections, setLoadingSections] = useState(true);
+  const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
+  const [editSectionTitle, setEditSectionTitle] = useState("");
+
+  // Add Question Modal State
+  const [isAddQuestionModalOpen, setIsAddQuestionModalOpen] = useState(false);
+  const [selectedSectionForNewQuestion, setSelectedSectionForNewQuestion] = useState("");
+  const [newQuestionText, setNewQuestionText] = useState("");
+  const [newQuestionType, setNewQuestionType] = useState("binaria");
+  const [newQuestionIsOptional, setNewQuestionIsOptional] = useState(false);
+  const [newQuestionExpectedAnswer, setNewQuestionExpectedAnswer] = useState("si");
 
   // Checklist Submissions State
   const [checklistsSubTab, setChecklistsSubTab] = useState<"preguntas" | "registros">("preguntas");
@@ -361,6 +377,24 @@ export default function HomePage() {
     }
   };
 
+  // Load checklist sections from Supabase
+  const fetchChecklistSections = async () => {
+    setLoadingSections(true);
+    try {
+      const { data, error } = await supabase
+        .from("checklist_sections")
+        .select("*")
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+      setChecklistSections(data || []);
+    } catch (err: any) {
+      console.error("Error fetching checklist sections:", err.message);
+    } finally {
+      setLoadingSections(false);
+    }
+  };
+
   useEffect(() => {
     if (isLoggedIn) {
       fetchUsers();
@@ -368,6 +402,7 @@ export default function HomePage() {
       fetchFaenas();
       fetchChecklistQuestions();
       fetchChecklistSubmissions();
+      fetchChecklistSections();
     }
   }, [isLoggedIn]);
 
@@ -1162,11 +1197,34 @@ export default function HomePage() {
     setIsDocModalOpen(true);
   };
 
+  // Section Title Editing Handlers
+  const handleStartEditSection = (sectionId: string, currentTitle: string) => {
+    setEditingSectionId(sectionId);
+    setEditSectionTitle(currentTitle);
+  };
+
+  const handleSaveSectionTitle = async (sectionId: string) => {
+    try {
+      const { error } = await supabase
+        .from("checklist_sections")
+        .update({ titulo: editSectionTitle.trim() })
+        .eq("id", sectionId);
+
+      if (error) throw error;
+      setEditingSectionId(null);
+      fetchChecklistSections();
+    } catch (err: any) {
+      alert("Error al guardar el título de la sección: " + err.message);
+    }
+  };
+
   // Start Editing Question
-  const startEditQuestion = (q: ChecklistQuestion) => {
+  const startEditQuestion = (q: any) => {
     setEditingQuestionId(q.id);
     setEditQuestionText(q.question_text);
-    setEditExpectedAnswer(q.expected_answer);
+    setEditExpectedAnswer(q.expected_answer || "si");
+    setEditQuestionType(q.tipo_pregunta || "binaria");
+    setEditQuestionIsOptional(q.es_opcional || false);
   };
 
   // Save Checklist Question
@@ -1176,7 +1234,9 @@ export default function HomePage() {
         .from("checklist_questions")
         .update({
           question_text: editQuestionText.trim(),
-          expected_answer: editExpectedAnswer
+          expected_answer: editQuestionType === "binaria" ? editExpectedAnswer : null,
+          tipo_pregunta: editQuestionType,
+          es_opcional: editQuestionIsOptional
         })
         .eq("id", id);
 
@@ -1185,13 +1245,65 @@ export default function HomePage() {
       setChecklistQuestions(
         checklistQuestions.map((q) =>
           q.id === id
-            ? { ...q, question_text: editQuestionText.trim(), expected_answer: editExpectedAnswer }
+            ? { 
+                ...q, 
+                question_text: editQuestionText.trim(), 
+                expected_answer: editQuestionType === "binaria" ? editExpectedAnswer : null,
+                tipo_pregunta: editQuestionType,
+                es_opcional: editQuestionIsOptional
+              }
             : q
         )
       );
       setEditingQuestionId(null);
     } catch (err: any) {
       alert("Error al guardar pregunta: " + err.message);
+    }
+  };
+
+  // Delete Checklist Question
+  const handleDeleteQuestion = async (id: string) => {
+    if (!window.confirm("¿Estás seguro de que deseas eliminar esta pregunta?")) return;
+    try {
+      const { error } = await supabase
+        .from("checklist_questions")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+      setChecklistQuestions(checklistQuestions.filter((q) => q.id !== id));
+    } catch (err: any) {
+      alert("Error al eliminar la pregunta: " + err.message);
+    }
+  };
+
+  // Create Checklist Question
+  const handleCreateQuestion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newQuestionText.trim()) return;
+
+    try {
+      const { error } = await supabase
+        .from("checklist_questions")
+        .insert([
+          {
+            checklist_type: selectedSectionForNewQuestion,
+            question_text: newQuestionText.trim(),
+            tipo_pregunta: newQuestionType,
+            es_opcional: newQuestionIsOptional,
+            expected_answer: newQuestionType === "binaria" ? newQuestionExpectedAnswer : null,
+          }
+        ]);
+
+      if (error) throw error;
+      setIsAddQuestionModalOpen(false);
+      setNewQuestionText("");
+      setNewQuestionType("binaria");
+      setNewQuestionIsOptional(false);
+      setNewQuestionExpectedAnswer("si");
+      fetchChecklistQuestions();
+    } catch (err: any) {
+      alert("Error al agregar la pregunta: " + err.message);
     }
   };
 
@@ -2229,31 +2341,72 @@ export default function HomePage() {
                     </p>
                   </div>
 
-                  {loadingChecklists ? (
+                  {loadingChecklists || loadingSections ? (
                     <div className="flex flex-col items-center justify-center py-20 gap-3">
                       <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600"></div>
                       <span className="text-sm text-slate-500 font-medium">Cargando preguntas de encuestas...</span>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {["fatiga", "herramientas", "vehiculo", "epp"].map((type) => {
+                      {checklistSections.map((section) => {
+                        const type = section.id;
                         const questions = checklistQuestions.filter((q) => q.checklist_type === type);
-                        const title =
-                          type === "fatiga"
-                            ? "Checklist Fatiga y Somnolencia"
-                            : type === "herramientas"
-                            ? "Checklist Herramientas"
-                            : type === "vehiculo"
-                            ? "Checklist Vehículo"
-                            : "Checklist EPP";
+                        const isEditingSection = editingSectionId === type;
 
                         return (
                           <div key={type} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                             <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
-                              <h4 className="font-bold text-sm tracking-wide uppercase">{title}</h4>
-                              <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-semibold">
-                                {questions.length} Preguntas
-                              </span>
+                              {isEditingSection ? (
+                                <div className="flex items-center gap-2 flex-1 mr-4">
+                                  <input
+                                    type="text"
+                                    value={editSectionTitle}
+                                    onChange={(e) => setEditSectionTitle(e.target.value)}
+                                    className="bg-slate-800 text-white border border-slate-700 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500 flex-1 font-semibold"
+                                  />
+                                  <button
+                                    onClick={() => handleSaveSectionTitle(type)}
+                                    className="bg-blue-650 hover:bg-blue-700 px-2.5 py-1 rounded text-xs font-bold transition-colors shrink-0"
+                                  >
+                                    Guardar
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingSectionId(null)}
+                                    className="bg-slate-700 hover:bg-slate-650 px-2.5 py-1 rounded text-xs font-bold transition-colors shrink-0"
+                                  >
+                                    Cancelar
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 flex-1 mr-4 min-w-0">
+                                  <h4 className="font-bold text-sm tracking-wide uppercase truncate">
+                                    {section.titulo}
+                                  </h4>
+                                  <button
+                                    onClick={() => handleStartEditSection(type, section.titulo)}
+                                    className="text-slate-400 hover:text-white p-0.5"
+                                    title="Editar Título de Sección"
+                                  >
+                                    <Edit2 className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              )}
+                              
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-[10px] bg-slate-850 text-slate-300 px-2 py-0.5 rounded-full font-semibold">
+                                  {questions.length} Preguntas
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    setSelectedSectionForNewQuestion(type);
+                                    setIsAddQuestionModalOpen(true);
+                                  }}
+                                  className="bg-blue-600 hover:bg-blue-755 text-white rounded p-1 hover:scale-105 transition-transform"
+                                  title="Agregar Pregunta"
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
                             </div>
 
                             <div className="divide-y divide-slate-100">
@@ -2274,34 +2427,69 @@ export default function HomePage() {
                                             rows={2}
                                           />
                                         </div>
-                                        <div className="flex items-center justify-between">
-                                          <div className="flex items-center gap-4">
-                                            <span className="text-xs font-bold text-slate-500 uppercase">Respuesta Esperada:</span>
-                                            <div className="flex gap-2">
-                                              <button
-                                                type="button"
-                                                onClick={() => setEditExpectedAnswer("si")}
-                                                className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
-                                                  editExpectedAnswer === "si"
-                                                    ? "bg-green-600 border-green-600 text-white"
-                                                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
-                                                }`}
-                                              >
-                                                Sí
-                                              </button>
-                                              <button
-                                                type="button"
-                                                onClick={() => setEditExpectedAnswer("no")}
-                                                className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
-                                                  editExpectedAnswer === "no"
-                                                    ? "bg-red-600 border-red-600 text-white"
-                                                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
-                                                }`}
-                                              >
-                                                No
-                                              </button>
-                                            </div>
+
+                                        <div className="grid grid-cols-2 gap-4">
+                                          <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                                              Tipo de Pregunta
+                                            </label>
+                                            <select
+                                              value={editQuestionType}
+                                              onChange={(e) => setEditQuestionType(e.target.value)}
+                                              className="w-full border border-slate-300 rounded-lg p-1.5 text-xs text-slate-800 focus:outline-none bg-white font-medium"
+                                            >
+                                              <option value="binaria">Binaria (Sí/No)</option>
+                                              <option value="desarrollo">Desarrollo (Texto)</option>
+                                              <option value="foto">Foto (Cámara)</option>
+                                            </select>
                                           </div>
+                                          
+                                          <div className="flex items-center gap-2 pt-4">
+                                            <input
+                                              type="checkbox"
+                                              id={`edit-optional-${q.id}`}
+                                              checked={editQuestionIsOptional}
+                                              onChange={(e) => setEditQuestionIsOptional(e.target.checked)}
+                                              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                                            />
+                                            <label htmlFor={`edit-optional-${q.id}`} className="text-xs font-bold text-slate-500 uppercase cursor-pointer select-none">
+                                              ¿Es Opcional?
+                                            </label>
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-between pt-2">
+                                          {editQuestionType === "binaria" ? (
+                                            <div className="flex items-center gap-4">
+                                              <span className="text-xs font-bold text-slate-500 uppercase">Respuesta Esperada:</span>
+                                              <div className="flex gap-2">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setEditExpectedAnswer("si")}
+                                                  className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
+                                                    editExpectedAnswer === "si"
+                                                      ? "bg-green-600 border-green-600 text-white"
+                                                      : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                                  }`}
+                                                >
+                                                  Sí
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setEditExpectedAnswer("no")}
+                                                  className={`px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
+                                                    editExpectedAnswer === "no"
+                                                      ? "bg-red-600 border-red-600 text-white"
+                                                      : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                                                  }`}
+                                                >
+                                                  No
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <div />
+                                          )}
                                           <div className="flex gap-2">
                                             <button
                                               onClick={() => setEditingQuestionId(null)}
@@ -2323,29 +2511,59 @@ export default function HomePage() {
                                     ) : (
                                       <div className="flex items-start justify-between gap-4">
                                         <div className="flex-1 min-w-0">
-                                          <p className="text-sm font-semibold text-slate-800 leading-relaxed">
-                                            {q.question_text}
-                                          </p>
-                                          <div className="flex items-center gap-1.5 mt-1.5 text-xs text-slate-500 font-medium">
-                                            <span>Respuesta esperada para aprobar:</span>
-                                            <span
-                                              className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                                                q.expected_answer === "si"
-                                                  ? "bg-green-100 text-green-700"
-                                                  : "bg-red-100 text-red-700"
-                                              }`}
-                                            >
-                                              {q.expected_answer === "si" ? "Sí" : "No"}
+                                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                                            <p className="text-sm font-semibold text-slate-800 leading-relaxed break-words">
+                                              {q.question_text}
+                                            </p>
+                                            {q.es_opcional && (
+                                              <span className="bg-slate-100 text-slate-500 text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
+                                                Opcional
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 font-medium mt-1">
+                                            <span className="bg-blue-50 text-blue-700 text-[9px] font-bold px-1.5 py-0.5 rounded border border-blue-100 uppercase tracking-wider">
+                                              {q.tipo_pregunta === "desarrollo"
+                                                ? "Desarrollo (Texto)"
+                                                : q.tipo_pregunta === "foto"
+                                                ? "Foto (Cámara)"
+                                                : "Binaria (Sí/No)"}
                                             </span>
+
+                                            {(!q.tipo_pregunta || q.tipo_pregunta === "binaria") && q.expected_answer && (
+                                              <div className="flex items-center gap-1.5">
+                                                <span>Respuesta Esperada:</span>
+                                                <span
+                                                  className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                                    q.expected_answer === "si"
+                                                      ? "bg-green-100 text-green-700"
+                                                      : "bg-red-100 text-red-700"
+                                                  }`}
+                                                >
+                                                  {q.expected_answer === "si" ? "Sí" : "No"}
+                                                </span>
+                                              </div>
+                                            )}
                                           </div>
                                         </div>
-                                        <button
-                                          onClick={() => startEditQuestion(q)}
-                                          className="text-slate-400 hover:text-blue-600 p-1 rounded hover:bg-slate-50 transition-colors shrink-0"
-                                          title="Editar Pregunta"
-                                        >
-                                          <Edit2 className="h-4 w-4" />
-                                        </button>
+                                        
+                                        <div className="flex gap-1 shrink-0">
+                                          <button
+                                            onClick={() => startEditQuestion(q)}
+                                            className="text-slate-400 hover:text-blue-600 p-1 rounded hover:bg-slate-50 transition-colors"
+                                            title="Editar Pregunta"
+                                          >
+                                            <Edit2 className="h-4 w-4" />
+                                          </button>
+                                          <button
+                                            onClick={() => handleDeleteQuestion(q.id)}
+                                            className="text-slate-400 hover:text-red-600 p-1 rounded hover:bg-slate-50 transition-colors"
+                                            title="Eliminar Pregunta"
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </button>
+                                        </div>
                                       </div>
                                     )}
                                   </div>
@@ -2939,6 +3157,118 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* CREATE CHECKLIST QUESTION MODAL */}
+      {isAddQuestionModalOpen && selectedSectionForNewQuestion && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden font-sans">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-lg">Agregar Nueva Pregunta</h3>
+              <button
+                onClick={() => setIsAddQuestionModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <form onSubmit={handleCreateQuestion} className="p-6 space-y-4 text-slate-700">
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-150 text-xs">
+                <span className="font-bold text-slate-450 uppercase block">Sección Destino:</span>
+                <span className="font-bold text-slate-800 text-sm">
+                  {checklistSections.find(s => s.id === selectedSectionForNewQuestion)?.titulo || selectedSectionForNewQuestion}
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Texto de la Pregunta *</label>
+                <textarea
+                  required
+                  value={newQuestionText}
+                  onChange={(e) => setNewQuestionText(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="Ej: ¿Cuenta con extintor vigente en cabina?"
+                  rows={2}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Pregunta *</label>
+                  <select
+                    value={newQuestionType}
+                    onChange={(e) => setNewQuestionType(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none bg-white font-medium"
+                  >
+                    <option value="binaria">Binaria (Sí/No)</option>
+                    <option value="desarrollo">Desarrollo (Texto)</option>
+                    <option value="foto">Foto (Cámara)</option>
+                  </select>
+                </div>
+                
+                <div className="flex items-center gap-2 pt-4">
+                  <input
+                    type="checkbox"
+                    id="new-question-optional"
+                    checked={newQuestionIsOptional}
+                    onChange={(e) => setNewQuestionIsOptional(e.target.checked)}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                  />
+                  <label htmlFor="new-question-optional" className="text-xs font-bold text-slate-700 uppercase cursor-pointer select-none">
+                    ¿Es Opcional?
+                  </label>
+                </div>
+              </div>
+
+              {newQuestionType === "binaria" && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Respuesta Esperada para Aprobar *</label>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setNewQuestionExpectedAnswer("si")}
+                      className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-colors ${
+                        newQuestionExpectedAnswer === "si"
+                          ? "bg-green-600 border-green-600 text-white"
+                          : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      Sí
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewQuestionExpectedAnswer("no")}
+                      className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-colors ${
+                        newQuestionExpectedAnswer === "no"
+                          ? "bg-red-600 border-red-600 text-white"
+                          : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      No
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsAddQuestionModalOpen(false)}
+                  className="border border-slate-300 text-slate-600 rounded-lg px-4 py-2 hover:bg-slate-50 transition-colors text-sm font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors text-sm font-semibold"
+                >
+                  Agregar Pregunta
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* CREATE OR EDIT FAENA POINT MODAL */}
       {isPointModalOpen && selectedFaenaForPoint && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -3084,49 +3414,84 @@ export default function HomePage() {
 
               {/* Answers list */}
               <div className="space-y-6">
-                {["fatiga", "herramientas", "vehiculo", "epp"].map((type) => {
+                {checklistSections.map((section) => {
+                  const type = section.id;
                   const typeQuestions = checklistQuestions.filter(q => q.checklist_type === type);
                   if (typeQuestions.length === 0) return null;
 
-                  const title =
-                    type === "fatiga"
-                      ? "Fatiga y Somnolencia"
-                      : type === "herramientas"
-                      ? "Herramientas"
-                      : type === "vehiculo"
-                      ? "Vehículo"
-                      : "EPP";
-
                   return (
-                    <div key={type} className="space-y-2">
+                    <div key={type} className="space-y-2.5">
                       <h4 className="font-bold text-xs text-slate-500 uppercase tracking-wider border-b border-slate-200 pb-1">
-                        Checklist {title}
+                        {section.titulo}
                       </h4>
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         {typeQuestions.map((q) => {
                           const answer = selectedSubmissionForDetail.respuestas?.[q.id];
                           const hasAnswer = !!answer;
-                          const isCorrect = hasAnswer && answer === q.expected_answer;
+                          const isOptional = q.es_opcional === true;
+                          const tipo = q.tipo_pregunta || "binaria";
 
                           return (
-                            <div key={q.id} className="flex justify-between items-start gap-4 p-2.5 rounded-lg border border-slate-100 bg-slate-50/30 text-sm">
-                              <span className="text-slate-800 font-medium">{q.question_text}</span>
-                              <div className="flex items-center gap-2 shrink-0">
+                            <div key={q.id} className="flex flex-col gap-2 p-3 rounded-lg border border-slate-100 bg-slate-50/30 text-sm">
+                              <div className="flex justify-between items-start gap-4">
+                                <span className="text-slate-800 font-semibold">{q.question_text}</span>
+                                {isOptional && (
+                                  <span className="bg-slate-100 text-slate-550 text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0">
+                                    Opcional
+                                  </span>
+                                )}
+                              </div>
+                              
+                              <div className="w-full mt-1">
                                 {hasAnswer ? (
-                                  <>
-                                    <span className={`text-[11px] font-bold uppercase px-2 py-0.5 rounded ${
-                                      answer === "si" ? "bg-slate-100 text-slate-800" : "bg-slate-200 text-slate-700"
-                                    }`}>
-                                      Marcó: {answer === "si" ? "Sí" : "No"}
-                                    </span>
-                                    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                                      isCorrect
-                                        ? "bg-green-150 text-green-700"
-                                        : "bg-red-150 text-red-700"
-                                    }`}>
-                                      {isCorrect ? "Aprobado" : "Rechazado"}
-                                    </span>
-                                  </>
+                                  tipo === "foto" ? (
+                                    <div className="space-y-1">
+                                      <span className="text-xs text-slate-450 font-bold block uppercase tracking-wider">Evidencia Fotográfica:</span>
+                                      {answer.startsWith("http") ? (
+                                        <a
+                                          href={answer}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="inline-block relative group border border-slate-200 rounded-lg overflow-hidden max-w-[200px] mt-1"
+                                        >
+                                          <img
+                                            src={answer}
+                                            alt="Foto Evidencia"
+                                            className="max-h-28 object-cover rounded-lg group-hover:opacity-90 transition-opacity"
+                                          />
+                                          <span className="absolute inset-0 bg-black/25 flex items-center justify-center text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity font-bold">
+                                            Ampliar Foto ↗
+                                          </span>
+                                        </a>
+                                      ) : (
+                                        <span className="text-xs text-slate-550 break-all bg-slate-150 p-1.5 rounded font-mono">{answer}</span>
+                                      )}
+                                    </div>
+                                  ) : tipo === "desarrollo" ? (
+                                    <div className="w-full">
+                                      <span className="text-xs text-slate-450 font-bold block uppercase tracking-wider">Respuesta de desarrollo:</span>
+                                      <div className="bg-slate-100 p-2.5 rounded-lg text-slate-800 text-xs font-semibold border border-slate-200 mt-1 leading-relaxed whitespace-pre-wrap">
+                                        {answer}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    // Binary (Sí/No)
+                                    <div className="flex items-center justify-between w-full">
+                                      <span className={`text-[11px] font-bold uppercase px-2 py-0.5 rounded ${
+                                        answer === "si" ? "bg-green-50 text-green-750 border border-green-150" : "bg-red-50 text-red-750 border border-red-150"
+                                      }`}>
+                                        Marcó: {answer === "si" ? "Sí" : "No"}
+                                      </span>
+                                      
+                                      <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                        answer === q.expected_answer
+                                          ? "bg-green-150 text-green-800"
+                                          : "bg-red-150 text-red-800"
+                                      }`}>
+                                        {answer === q.expected_answer ? "Cumple" : "No Cumple"}
+                                      </span>
+                                    </div>
+                                  )
                                 ) : (
                                   <span className="text-xs text-slate-400 italic">Sin respuesta</span>
                                 )}
