@@ -4,13 +4,39 @@ import { supabase } from "@/lib/supabase";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { tipo, driverName, driverRut, driverCargo, details, vehicleCode, faenaName, motivo, observaciones, evidenciaUrl, pendingCount, totalCount } = body;
+    const { 
+      tipo, 
+      driverName, 
+      driverRut, 
+      driverCargo, 
+      details, 
+      vehicleCode, 
+      faenaName, 
+      motivo, 
+      observaciones, 
+      evidenciaUrl, 
+      pendingCount, 
+      totalCount,
+      fechaReporte,
+      puntosCompletados,
+      puntosNoCompletados 
+    } = body;
 
     if (!tipo || !driverName || !driverRut) {
       return NextResponse.json(
         { error: "Faltan parámetros requeridos en el cuerpo de la solicitud." },
         { status: 400 }
       );
+    }
+
+    // Prepare details field based on alert type
+    let finalDetails = details;
+    if (tipo === "termino_anticipado") {
+      finalDetails = {
+        fechaReporte: fechaReporte || new Date().toISOString(),
+        puntosCompletados: puntosCompletados || [],
+        puntosNoCompletados: puntosNoCompletados || [],
+      };
     }
 
     // 0. Persist notification in database
@@ -24,7 +50,7 @@ export async function POST(req: Request) {
           driver_cargo: driverCargo || null,
           vehicle_code: vehicleCode || null,
           faena_name: faenaName || null,
-          details: details || null,
+          details: finalDetails || null,
           motivo: motivo || null,
           observaciones: observaciones || null,
           evidencia_url: evidenciaUrl || null,
@@ -111,10 +137,49 @@ export async function POST(req: Request) {
               <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; font-weight: bold; color: #dc2626;">${motivo || "No especificado"}</td>
             </tr>
             <tr>
+              <td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #e2e8f0;">Fecha/Hora Reporte:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; font-weight: bold;">
+                ${fechaReporte ? new Date(fechaReporte).toLocaleString('es-CL') : new Date().toLocaleString('es-CL')}
+              </td>
+            </tr>
+            <tr style="background-color: #f8fafc;">
               <td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #e2e8f0;">Observaciones:</td>
               <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; white-space: pre-wrap;">${observaciones || "Sin observaciones."}</td>
             </tr>
           </table>
+
+          <h3 style="color: #475569; margin-bottom: 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;">📍 Estado de la Ruta (Puntos)</h3>
+          
+          <div style="margin-bottom: 15px;">
+            <h4 style="color: #16a34a; margin-top: 0; margin-bottom: 6px; font-size: 14px;">✅ Puntos Completados (${puntosCompletados?.length || 0})</h4>
+            ${(!puntosCompletados || puntosCompletados.length === 0) 
+              ? '<p style="color: #64748b; font-size: 13px; margin: 0 0 10px 0;">Ningún punto completado.</p>' 
+              : `
+              <ul style="padding-left: 20px; margin: 0 0 15px 0; color: #334155; font-size: 13px; line-height: 1.6;">
+                ${puntosCompletados.map((p: any) => {
+                  const checkinTime = p.completed_at 
+                    ? new Date(p.completed_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+                    : 'N/A';
+                  return `<li style="margin-bottom: 4px;"><strong>${p.codigo}</strong> - ${p.nombre} <span style="color: #64748b; font-size: 11px;">(Completado a las ${checkinTime})</span></li>`;
+                }).join("")}
+              </ul>
+              `
+            }
+          </div>
+
+          <div style="margin-bottom: 15px;">
+            <h4 style="color: #dc2626; margin-top: 0; margin-bottom: 6px; font-size: 14px;">❌ Puntos Pendientes (${puntosNoCompletados?.length || 0})</h4>
+            ${(!puntosNoCompletados || puntosNoCompletados.length === 0) 
+              ? '<p style="color: #64748b; font-size: 13px; margin: 0 0 10px 0;">Todos los puntos completados.</p>' 
+              : `
+              <ul style="padding-left: 20px; margin: 0 0 15px 0; color: #334155; font-size: 13px; line-height: 1.6;">
+                ${puntosNoCompletados.map((p: any) => `
+                  <li style="margin-bottom: 4px; color: #ef4444;"><strong>${p.codigo}</strong> - ${p.nombre}</li>
+                `).join("")}
+              </ul>
+              `
+            }
+          </div>
 
           ${evidenciaUrl ? `
           <h3 style="color: #475569; margin-bottom: 12px;">Evidencia Fotográfica:</h3>

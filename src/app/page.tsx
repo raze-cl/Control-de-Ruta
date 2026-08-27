@@ -3217,7 +3217,7 @@ export default function HomePage() {
 
                       {/* Detalles específicos */}
                       {selectedNotification.tipo === "checklist_fallido" && (
-                        <div className="bg-red-50/50 border border-red-200 rounded-xl p-5 space-y-3">
+                        <div className="bg-red-50/50 border border-red-200 rounded-xl p-5 space-y-3 text-left">
                           <h4 className="text-sm font-bold text-red-800">Fallas registradas en inspección diaria:</h4>
                           <ul className="list-disc pl-5 text-sm text-red-700 space-y-1.5">
                             {Array.isArray(selectedNotification.details) ? (
@@ -3232,11 +3232,67 @@ export default function HomePage() {
                       )}
 
                       {selectedNotification.tipo === "termino_anticipado" && (
-                        <div className="border border-orange-250 bg-orange-50/20 rounded-xl p-5 space-y-4">
+                        <div className="border border-orange-250 bg-orange-50/20 rounded-xl p-5 space-y-4 text-left">
                           <div>
                             <span className="text-[10px] font-bold text-orange-800 uppercase block mb-1">Motivo Declarado</span>
                             <span className="text-sm font-bold text-slate-850">{selectedNotification.motivo}</span>
                           </div>
+
+                          {selectedNotification.details && typeof selectedNotification.details === "object" && (
+                            <>
+                              {(selectedNotification.details as any).fechaReporte && (
+                                <div>
+                                  <span className="text-[10px] font-bold text-orange-800 uppercase block mb-1">Fecha / Hora del Reporte</span>
+                                  <span className="text-sm font-semibold text-slate-850">
+                                    {new Date((selectedNotification.details as any).fechaReporte).toLocaleString('es-CL')}
+                                  </span>
+                                </div>
+                              )}
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                                <div className="bg-white p-3 rounded-lg border border-slate-200">
+                                  <span className="text-[10px] font-bold text-green-700 uppercase block mb-2">
+                                    ✅ Puntos Completados ({(selectedNotification.details as any).puntosCompletados?.length || 0})
+                                  </span>
+                                  {!((selectedNotification.details as any).puntosCompletados) || ((selectedNotification.details as any).puntosCompletados as any[]).length === 0 ? (
+                                    <span className="text-xs text-slate-400">Ningún punto completado</span>
+                                  ) : (
+                                    <ul className="text-xs text-slate-700 space-y-2 max-h-48 overflow-y-auto">
+                                      {((selectedNotification.details as any).puntosCompletados as any[]).map((p: any, idx: number) => {
+                                        const timeStr = p.completed_at
+                                          ? new Date(p.completed_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+                                          : 'N/A';
+                                        return (
+                                          <li key={idx} className="flex flex-col border-b border-slate-100 pb-1.5 last:border-0 last:pb-0">
+                                            <span className="font-semibold text-slate-800">[{p.codigo}] {p.nombre}</span>
+                                            <span className="text-[10px] text-slate-400 font-medium">Marcado a las {timeStr}</span>
+                                          </li>
+                                        );
+                                      })}
+                                    </ul>
+                                  )}
+                                </div>
+
+                                <div className="bg-white p-3 rounded-lg border border-slate-200">
+                                  <span className="text-[10px] font-bold text-red-700 uppercase block mb-2">
+                                    ❌ Puntos Pendientes ({(selectedNotification.details as any).puntosNoCompletados?.length || 0})
+                                  </span>
+                                  {!((selectedNotification.details as any).puntosNoCompletados) || ((selectedNotification.details as any).puntosNoCompletados as any[]).length === 0 ? (
+                                    <span className="text-xs text-slate-400">Todos los puntos completados</span>
+                                  ) : (
+                                    <ul className="text-xs text-slate-700 space-y-2 max-h-48 overflow-y-auto">
+                                      {((selectedNotification.details as any).puntosNoCompletados as any[]).map((p: any, idx: number) => (
+                                        <li key={idx} className="flex flex-col border-b border-slate-100 pb-1.5 last:border-0 last:pb-0">
+                                          <span className="font-semibold text-red-650">[{p.codigo}] {p.nombre}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                              </div>
+                            </>
+                          )}
+
                           <div>
                             <span className="text-[10px] font-bold text-orange-800 uppercase block mb-1">Observaciones / Comentarios</span>
                             <p className="text-sm text-slate-700 bg-white p-3 rounded-lg border border-slate-200 whitespace-pre-line leading-relaxed">
