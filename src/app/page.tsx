@@ -171,6 +171,13 @@ export default function HomePage() {
   const [notificationFilterWorker, setNotificationFilterWorker] = useState("");
   const [notificationFilterDate, setNotificationFilterDate] = useState("");
 
+  // Delete Notification State
+  const [isDeleteNotificationModalOpen, setIsDeleteNotificationModalOpen] = useState(false);
+  const [notificationToDelete, setNotificationToDelete] = useState<AppNotification | null>(null);
+  const [deleteNotificationPassword, setDeleteNotificationPassword] = useState("");
+  const [deleteNotificationError, setDeleteNotificationError] = useState("");
+  const [deletingNotification, setDeletingNotification] = useState(false);
+
   // Users CRUD State
   const [users, setUsers] = useState<AppUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
@@ -465,6 +472,55 @@ export default function HomePage() {
       }
     } catch (err: any) {
       console.error("Error updating notification status:", err.message);
+    }
+  };
+
+  // Initiate notification delete
+  const handleInitiateDeleteNotification = (notification: AppNotification) => {
+    setNotificationToDelete(notification);
+    setDeleteNotificationPassword("");
+    setDeleteNotificationError("");
+    setIsDeleteNotificationModalOpen(true);
+  };
+
+  // Perform delete notification in Supabase after password confirmation
+  const handleDeleteNotificationConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeleteNotificationError("");
+
+    if (!currentAdmin) return;
+
+    if (deleteNotificationPassword !== currentAdmin.password) {
+      setDeleteNotificationError("Contraseña incorrecta. Inténtelo de nuevo.");
+      return;
+    }
+
+    if (!notificationToDelete) return;
+
+    setDeletingNotification(true);
+
+    try {
+      const { error } = await supabase
+        .from("app_notifications")
+        .delete()
+        .eq("id", notificationToDelete.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setNotifications(prev => prev.filter(n => n.id !== notificationToDelete.id));
+      if (selectedNotification && selectedNotification.id === notificationToDelete.id) {
+        setSelectedNotification(null);
+      }
+
+      setIsDeleteNotificationModalOpen(false);
+      setNotificationToDelete(null);
+      setDeleteNotificationPassword("");
+    } catch (err: any) {
+      console.error("Error deleting notification:", err.message);
+      setDeleteNotificationError("Error al eliminar de la base de datos.");
+    } finally {
+      setDeletingNotification(false);
     }
   };
 
@@ -3120,17 +3176,27 @@ export default function HomePage() {
                           </p>
                         </div>
 
-                        <button
-                          onClick={() => toggleNotificationRead(selectedNotification.id, selectedNotification.leida)}
-                          className={`inline-flex items-center gap-1.5 font-bold py-2 px-4 rounded-lg text-xs transition-colors shadow-sm border ${
-                            selectedNotification.leida
-                              ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300"
-                              : "bg-blue-600 hover:bg-blue-700 text-white border-transparent"
-                          }`}
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                          {selectedNotification.leida ? "Marcar como no leída" : "Marcar como leída"}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => toggleNotificationRead(selectedNotification.id, selectedNotification.leida)}
+                            className={`inline-flex items-center gap-1.5 font-bold py-2 px-4 rounded-lg text-xs transition-colors shadow-sm border ${
+                              selectedNotification.leida
+                                ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300"
+                                : "bg-blue-600 hover:bg-blue-700 text-white border-transparent"
+                            }`}
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                            {selectedNotification.leida ? "Marcar como no leída" : "Marcar como leída"}
+                          </button>
+
+                          <button
+                            onClick={() => handleInitiateDeleteNotification(selectedNotification)}
+                            className="inline-flex items-center gap-1.5 font-bold py-2 px-4 rounded-lg text-xs bg-red-600 hover:bg-red-700 text-white transition-colors shadow-sm border border-transparent"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Eliminar
+                          </button>
+                        </div>
                       </div>
 
                       {/* Información General */}
@@ -4398,6 +4464,75 @@ export default function HomePage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE NOTIFICATION PASSWORD MODAL */}
+      {isDeleteNotificationModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden font-sans">
+            <div className="bg-red-600 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <Trash2 className="h-5 w-5 text-red-150" />
+                Confirmar Eliminación
+              </h3>
+              <button
+                onClick={() => setIsDeleteNotificationModalOpen(false)}
+                className="text-slate-200 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <form onSubmit={handleDeleteNotificationConfirm} className="p-6 space-y-5 text-slate-700">
+              {deleteNotificationError && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{deleteNotificationError}</span>
+                </div>
+              )}
+
+              <p className="text-sm text-slate-500 leading-relaxed text-left">
+                ¿Está seguro de que desea eliminar permanentemente la notificación de <strong>{notificationToDelete?.driver_name}</strong>? Esta acción no se puede deshacer.
+              </p>
+
+              <div className="text-left">
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-2">
+                  Contraseña de Confirmación
+                </label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                    <Lock className="h-4 w-4" />
+                  </span>
+                  <input
+                    type="password"
+                    required
+                    value={deleteNotificationPassword}
+                    onChange={(e) => setDeleteNotificationPassword(e.target.value)}
+                    className="block w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3 text-sm text-slate-800 placeholder-slate-400 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500"
+                    placeholder="Contraseña del administrador"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteNotificationModalOpen(false)}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg px-4 py-2 text-sm font-semibold transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={deletingNotification}
+                  className="bg-red-650 hover:bg-red-750 text-white rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:bg-red-400"
+                >
+                  {deletingNotification ? "Eliminando..." : "Eliminar"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
