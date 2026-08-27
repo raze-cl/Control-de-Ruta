@@ -13,6 +13,30 @@ export async function POST(req: Request) {
       );
     }
 
+    // 0. Persist notification in database
+    try {
+      const { error: dbError } = await supabase
+        .from("app_notifications")
+        .insert({
+          tipo,
+          driver_name: driverName,
+          driver_rut: driverRut,
+          driver_cargo: driverCargo || null,
+          vehicle_code: vehicleCode || null,
+          faena_name: faenaName || null,
+          details: details || null,
+          motivo: motivo || null,
+          observaciones: observaciones || null,
+          evidencia_url: evidenciaUrl || null,
+          leida: false
+        });
+      if (dbError) {
+        console.error("Supabase notification insert error:", dbError);
+      }
+    } catch (dbErr) {
+      console.error("Supabase notification try-catch error:", dbErr);
+    }
+
     // 1. Query all admins with recibe_notificaciones = true
     const { data: admins, error: adminError } = await supabase
       .from("app_users")

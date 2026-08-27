@@ -45,7 +45,8 @@ import {
   Printer,
   Upload,
   MapPin,
-  Map
+  Map,
+  Bell
 } from "lucide-react";
 
 interface AppUser {
@@ -100,6 +101,22 @@ interface FaenaPoint {
   created_at?: string;
 }
 
+interface AppNotification {
+  id: string;
+  created_at: string;
+  tipo: string;
+  driver_name: string;
+  driver_rut: string;
+  driver_cargo?: string;
+  vehicle_code?: string;
+  faena_name?: string;
+  details?: any;
+  motivo?: string;
+  observaciones?: string;
+  evidencia_url?: string;
+  leida: boolean;
+}
+
 const MANDATORY_DOCS = [
   "Cédula Identidad",
   "Licencia Municipal",
@@ -146,6 +163,13 @@ export default function HomePage() {
   // App Layout State
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
   const [activeTab, setActiveTab] = useState("users");
+
+  // Notifications State
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [loadingNotifications, setLoadingNotifications] = useState(true);
+  const [selectedNotification, setSelectedNotification] = useState<AppNotification | null>(null);
+  const [notificationFilterWorker, setNotificationFilterWorker] = useState("");
+  const [notificationFilterDate, setNotificationFilterDate] = useState("");
 
   // Users CRUD State
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -406,6 +430,44 @@ export default function HomePage() {
     }
   };
 
+  // Load notifications from Supabase
+  const fetchNotifications = async () => {
+    setLoadingNotifications(true);
+    try {
+      const { data, error } = await supabase
+        .from("app_notifications")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setNotifications(data || []);
+    } catch (err: any) {
+      console.error("Error fetching notifications:", err.message);
+    } finally {
+      setLoadingNotifications(false);
+    }
+  };
+
+  // Toggle notification read status in Supabase
+  const toggleNotificationRead = async (id: string, currentReadStatus: boolean) => {
+    try {
+      const { error } = await supabase
+        .from("app_notifications")
+        .update({ leida: !currentReadStatus })
+        .eq("id", id);
+
+      if (error) throw error;
+
+      // Update local state
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, leida: !currentReadStatus } : n));
+      if (selectedNotification && selectedNotification.id === id) {
+        setSelectedNotification(prev => prev ? { ...prev, leida: !currentReadStatus } : null);
+      }
+    } catch (err: any) {
+      console.error("Error updating notification status:", err.message);
+    }
+  };
+
   useEffect(() => {
     if (isLoggedIn) {
       fetchUsers();
@@ -414,6 +476,7 @@ export default function HomePage() {
       fetchChecklistQuestions();
       fetchChecklistSubmissions();
       fetchChecklistSections();
+      fetchNotifications();
     }
   }, [isLoggedIn]);
 
@@ -1601,6 +1664,8 @@ export default function HomePage() {
   }
 
   // Dashboard Interface
+  const unreadCount = notifications.filter(n => !n.leida).length;
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
       {/* Sidebar Component */}
@@ -1679,6 +1744,34 @@ export default function HomePage() {
           >
             <ClipboardList className="h-5 w-5 shrink-0" />
             {isSidebarExpanded && <span>Gestión de Encuestas</span>}
+          </button>
+
+          <button
+            onClick={() => setActiveTab("notifications")}
+            className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+              activeTab === "notifications"
+                ? "bg-blue-600 text-white shadow"
+                : "text-slate-400 hover:bg-slate-800 hover:text-white"
+            }`}
+          >
+            <div className="relative">
+              <Bell className="h-5 w-5 shrink-0" />
+              {!isSidebarExpanded && unreadCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+                  {unreadCount}
+                </span>
+              )}
+            </div>
+            {isSidebarExpanded && (
+              <div className="flex-1 flex items-center justify-between min-w-0">
+                <span className="truncate">Notificaciones</span>
+                {unreadCount > 0 && (
+                  <span className="bg-red-500 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full">
+                    {unreadCount}
+                  </span>
+                )}
+              </div>
+            )}
           </button>
 
           <button
@@ -2855,6 +2948,272 @@ export default function HomePage() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === "notifications" && (
+            <div className="space-y-6 font-sans text-slate-800">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="text-left">
+                  <h2 className="text-xl font-bold text-slate-800">Buzón de Notificaciones</h2>
+                  <p className="text-slate-500 text-sm mt-0.5">
+                    Historial de alertas reportadas por los operadores en terreno.
+                  </p>
+                </div>
+              </div>
+
+              {/* Filtros */}
+              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-end">
+                <div className="flex-1 w-full text-left">
+                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">
+                    Buscar por Trabajador (Nombre/RUT)
+                  </label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Ingrese nombre o RUT..."
+                      value={notificationFilterWorker}
+                      onChange={(e) => setNotificationFilterWorker(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="w-full md:w-48 text-left">
+                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">
+                    Filtrar por Fecha
+                  </label>
+                  <input
+                    type="date"
+                    value={notificationFilterDate}
+                    onChange={(e) => setNotificationFilterDate(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                {(notificationFilterWorker || notificationFilterDate) && (
+                  <button
+                    onClick={() => {
+                      setNotificationFilterWorker("");
+                      setNotificationFilterDate("");
+                    }}
+                    className="w-full md:w-auto bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-2 px-4 rounded-lg text-sm transition-colors"
+                  >
+                    Limpiar
+                  </button>
+                )}
+              </div>
+
+              {/* Panel dividido */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Columna Izquierda: Listado */}
+                <div className="lg:col-span-1 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col max-h-[600px]">
+                  <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-500 uppercase">Alertas Registradas</span>
+                    <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      {notifications.length} total
+                    </span>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+                    {loadingNotifications ? (
+                      <div className="p-8 text-center text-slate-500 animate-pulse text-sm">
+                        Cargando notificaciones...
+                      </div>
+                    ) : notifications.filter(n => {
+                      const matchesWorker = !notificationFilterWorker ||
+                        n.driver_name.toLowerCase().includes(notificationFilterWorker.toLowerCase()) ||
+                        n.driver_rut.toLowerCase().includes(notificationFilterWorker.toLowerCase());
+                      const matchesDate = !notificationFilterDate ||
+                        (n.created_at && n.created_at.startsWith(notificationFilterDate));
+                      return matchesWorker && matchesDate;
+                    }).length === 0 ? (
+                      <div className="p-8 text-center text-slate-500 text-sm">
+                        No se encontraron notificaciones.
+                      </div>
+                    ) : (
+                      notifications
+                        .filter(n => {
+                          const matchesWorker = !notificationFilterWorker ||
+                            n.driver_name.toLowerCase().includes(notificationFilterWorker.toLowerCase()) ||
+                            n.driver_rut.toLowerCase().includes(notificationFilterWorker.toLowerCase());
+                          const matchesDate = !notificationFilterDate ||
+                            (n.created_at && n.created_at.startsWith(notificationFilterDate));
+                          return matchesWorker && matchesDate;
+                        })
+                        .map((n) => {
+                          const isSelected = selectedNotification?.id === n.id;
+                          const dateObj = new Date(n.created_at);
+                          const dateStr = dateObj.toLocaleDateString('es-CL');
+                          const timeStr = dateObj.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+
+                          return (
+                            <div
+                              key={n.id}
+                              onClick={() => setSelectedNotification(n)}
+                              className={`p-4 cursor-pointer transition-colors text-left relative ${
+                                isSelected ? "bg-blue-50/50" : "hover:bg-slate-50"
+                              }`}
+                            >
+                              {/* Indicador de no leído */}
+                              {!n.leida && (
+                                <span className="absolute left-2.5 top-[18px] flex h-2 w-2 rounded-full bg-red-500" />
+                              )}
+
+                              <div className="pl-3">
+                                <div className="flex items-center justify-between gap-2 mb-1.5">
+                                  <span className="text-[10px] text-slate-400 font-semibold">
+                                    {dateStr} - {timeStr}
+                                  </span>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                    n.tipo === "checklist_fallido"
+                                      ? "bg-red-100 text-red-800"
+                                      : n.tipo === "termino_anticipado"
+                                      ? "bg-orange-100 text-orange-800"
+                                      : "bg-amber-100 text-amber-800"
+                                  }`}>
+                                    {n.tipo === "checklist_fallido"
+                                      ? "Checklist Falla"
+                                      : n.tipo === "termino_anticipado"
+                                      ? "Término Ruta"
+                                      : "Doc. Vencido"}
+                                  </span>
+                                </div>
+                                <h4 className="font-bold text-slate-800 text-sm truncate">{n.driver_name}</h4>
+                                <p className="text-xs text-slate-500 truncate">RUT: {n.driver_rut}</p>
+                              </div>
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+                </div>
+
+                {/* Columna Derecha: Detalle */}
+                <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm p-6 min-h-[400px] max-h-[600px] overflow-y-auto">
+                  {selectedNotification ? (
+                    <div className="space-y-6 text-left">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
+                              selectedNotification.tipo === "checklist_fallido"
+                                ? "bg-red-100 text-red-800"
+                                : selectedNotification.tipo === "termino_anticipado"
+                                ? "bg-orange-100 text-orange-800"
+                                : "bg-amber-100 text-amber-800"
+                            }`}>
+                              {selectedNotification.tipo === "checklist_fallido"
+                                ? "Checklist Rechazado"
+                                : selectedNotification.tipo === "termino_anticipado"
+                                ? "Término Anticipado de Ruta"
+                                : "Alerta de Documentos Vencidos"}
+                            </span>
+                            <span className="text-xs text-slate-500 font-medium">
+                              {new Date(selectedNotification.created_at).toLocaleString('es-CL')}
+                            </span>
+                          </div>
+                          <h3 className="text-lg font-bold text-slate-800">{selectedNotification.driver_name}</h3>
+                          <p className="text-sm text-slate-500 font-medium">
+                            Cargo: {selectedNotification.driver_cargo || "Chofer"} | RUT: {selectedNotification.driver_rut}
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={() => toggleNotificationRead(selectedNotification.id, selectedNotification.leida)}
+                          className={`inline-flex items-center gap-1.5 font-bold py-2 px-4 rounded-lg text-xs transition-colors shadow-sm border ${
+                            selectedNotification.leida
+                              ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300"
+                              : "bg-blue-600 hover:bg-blue-700 text-white border-transparent"
+                          }`}
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                          {selectedNotification.leida ? "Marcar como no leída" : "Marcar como leída"}
+                        </button>
+                      </div>
+
+                      {/* Información General */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Vehículo Asociado</span>
+                          <span className="text-sm font-semibold text-slate-850">
+                            {selectedNotification.vehicle_code || "No especificado"}
+                          </span>
+                        </div>
+                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Faena de Operación</span>
+                          <span className="text-sm font-semibold text-slate-850">
+                            {selectedNotification.faena_name || "No especificada"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Detalles específicos */}
+                      {selectedNotification.tipo === "checklist_fallido" && (
+                        <div className="bg-red-50/50 border border-red-200 rounded-xl p-5 space-y-3">
+                          <h4 className="text-sm font-bold text-red-800">Fallas registradas en inspección diaria:</h4>
+                          <ul className="list-disc pl-5 text-sm text-red-700 space-y-1.5">
+                            {Array.isArray(selectedNotification.details) ? (
+                              selectedNotification.details.map((q: string, idx: number) => <li key={idx}>{q}</li>)
+                            ) : typeof selectedNotification.details === "string" ? (
+                              <li>{selectedNotification.details}</li>
+                            ) : (
+                              <li>Fallas en el checklist de control</li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+
+                      {selectedNotification.tipo === "termino_anticipado" && (
+                        <div className="border border-orange-250 bg-orange-50/20 rounded-xl p-5 space-y-4">
+                          <div>
+                            <span className="text-[10px] font-bold text-orange-800 uppercase block mb-1">Motivo Declarado</span>
+                            <span className="text-sm font-bold text-slate-850">{selectedNotification.motivo}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-bold text-orange-800 uppercase block mb-1">Observaciones / Comentarios</span>
+                            <p className="text-sm text-slate-700 bg-white p-3 rounded-lg border border-slate-200 whitespace-pre-line leading-relaxed">
+                              {selectedNotification.observaciones}
+                            </p>
+                          </div>
+                          {selectedNotification.evidencia_url && (
+                            <div>
+                              <span className="text-[10px] font-bold text-orange-800 uppercase block mb-2">Evidencia Capturada</span>
+                              <a href={selectedNotification.evidencia_url} target="_blank" rel="noopener noreferrer" className="inline-block group border border-slate-200 rounded-lg overflow-hidden shadow-sm bg-white hover:border-slate-400 transition-colors">
+                                <img
+                                  src={selectedNotification.evidencia_url}
+                                  alt="Evidencia término anticipado"
+                                  className="max-h-64 object-cover"
+                                />
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {selectedNotification.tipo !== "checklist_fallido" && selectedNotification.tipo !== "termino_anticipado" && (
+                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Detalles Adicionales</span>
+                          <p className="text-sm text-slate-700 whitespace-pre-line">
+                            {typeof selectedNotification.details === "string"
+                              ? selectedNotification.details
+                              : JSON.stringify(selectedNotification.details, null, 2)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center py-20 text-center px-4 text-slate-400">
+                      <Bell className="h-16 w-16 text-slate-200 mb-4" />
+                      <h3 className="text-sm font-bold text-slate-600">Detalle de Alerta</h3>
+                      <p className="text-xs text-slate-500 mt-1 max-w-xs leading-relaxed">
+                        Selecciona cualquier notificación de la lista izquierda para ver su contenido detallado y gestionarla.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
