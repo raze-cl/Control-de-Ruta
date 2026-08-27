@@ -179,33 +179,48 @@ export async function POST(req: Request) {
     }
 
     // 4. Send email using Resend REST API
-    const fromEmail = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
-    
-    const resendResponse = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${resendApiKey}`,
-      },
-      body: JSON.stringify({
-        from: `Notificaciones ScanQR <${fromEmail}>`,
-        to: adminEmails,
-        subject: subject,
-        html: htmlBody,
-      }),
-    });
+    let emailSent = false;
+    let emailError = null;
+    let resendId = null;
 
-    const resendData = await resendResponse.json();
+    try {
+      const fromEmail = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
+      
+      const resendResponse = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${resendApiKey}`,
+        },
+        body: JSON.stringify({
+          from: `Notificaciones ScanQR <${fromEmail}>`,
+          to: adminEmails,
+          subject: subject,
+          html: htmlBody,
+        }),
+      });
 
-    if (!resendResponse.ok) {
-      console.error("Resend error response:", resendData);
-      throw new Error(resendData.message || "Error al enviar correo vía Resend.");
+      const resendData = await resendResponse.json();
+
+      if (!resendResponse.ok) {
+        console.error("Resend error response:", resendData);
+        emailError = resendData.message || "Error al enviar correo vía Resend.";
+      } else {
+        emailSent = true;
+        resendId = resendData.id;
+      }
+    } catch (e: any) {
+      console.error("Resend execution error:", e);
+      emailError = e.message || "Error de conexión al enviar correo.";
     }
 
     return NextResponse.json({
       success: true,
-      message: `Notificación enviada con éxito a ${adminEmails.length} administrador(es).`,
-      id: resendData.id,
+      message: emailSent
+        ? `Notificación guardada y correo enviado con éxito a ${adminEmails.length} administrador(es).`
+        : `Notificación guardada en panel, pero el correo falló: ${emailError}`,
+      emailSent,
+      id: resendId,
     });
   } catch (err: any) {
     console.error("Error in notify-admins API route:", err);
