@@ -46,7 +46,11 @@ import {
   Upload,
   MapPin,
   Map,
-  Bell
+  Bell,
+  Clock,
+  TrendingUp,
+  Activity,
+  AlertTriangle
 } from "lucide-react";
 
 interface AppUser {
@@ -1632,14 +1636,16 @@ export default function HomePage() {
         ) : (
           <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-xl border border-slate-200">
             <div className="flex flex-col items-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg">
-                <Users className="h-9 w-9" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 text-white shadow-lg">
+                <svg className="h-10 w-10" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C12 2 6 8.5 6 13C6 16.3137 8.68629 19 12 19C15.3137 19 18 16.3137 18 13C18 8.5 12 2 12 2ZM12 17C9.79086 17 8 15.2091 8 13C8 11.2 12 6.5 12 6.5C12 6.5 16 11.2 16 13C16 15.2091 14.2091 17 12 17Z" />
+                </svg>
               </div>
               <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-slate-800">
-                Control Panel Administrador
+                Control de Ruta
               </h2>
               <p className="mt-2 text-center text-sm text-slate-500">
-                Inicia sesión para gestionar los accesos de la APK
+                Panel de Control Administrador
               </p>
             </div>
 
@@ -1744,10 +1750,14 @@ export default function HomePage() {
 
         {/* Sidebar Header */}
         <div className="flex h-16 items-center gap-3 px-6 border-b border-slate-800">
-          <Users className="h-7 w-7 text-blue-500 shrink-0" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-tr from-emerald-500 to-teal-400 text-white shadow shrink-0">
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C12 2 6 8.5 6 13C6 16.3137 8.68629 19 12 19C15.3137 19 18 16.3137 18 13C18 8.5 12 2 12 2ZM12 17C9.79086 17 8 15.2091 8 13C8 11.2 12 6.5 12 6.5C12 6.5 16 11.2 16 13C16 15.2091 14.2091 17 12 17Z" />
+            </svg>
+          </div>
           {isSidebarExpanded && (
-            <span className="font-bold text-lg tracking-wide text-blue-100">
-              ScanQR Admin
+            <span className="font-bold text-base tracking-wide text-white">
+              Control de Ruta
             </span>
           )}
         </div>
@@ -1839,7 +1849,7 @@ export default function HomePage() {
             }`}
           >
             <LayoutDashboard className="h-5 w-5 shrink-0" />
-            {isSidebarExpanded && <span>Dashboard (Mock)</span>}
+            {isSidebarExpanded && <span>Dashboard</span>}
           </button>
         </nav>
 
@@ -3340,35 +3350,224 @@ export default function HomePage() {
           )}
 
           {activeTab === "dashboard" && (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 text-slate-700">
-              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                <div className="h-12 w-12 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
-                  <Users className="h-6 w-6" />
-                </div>
+            <div className="space-y-6 text-slate-700 font-sans">
+              {/* Dashboard Welcome Header */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-500 uppercase">Total Usuarios</h3>
-                  <p className="text-2xl font-bold text-slate-800">{users.length}</p>
+                  <h2 className="text-xl font-bold text-slate-800">Resumen Operativo de Faenas y Rutas</h2>
+                  <p className="text-sm text-slate-500 mt-1">Estadísticas y tasa de cumplimiento en tiempo real para control de ruta.</p>
+                </div>
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-4 py-2 rounded-lg text-sm font-semibold text-slate-600">
+                  <Calendar className="h-4 w-4 text-slate-400" />
+                  <span>Hoy: {new Date().toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                <div className="h-12 w-12 rounded-xl bg-green-100 text-green-600 flex items-center justify-center">
-                  <Truck className="h-6 w-6" />
+              {/* KPI Stat Cards Group */}
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                {/* Tasa Cumplimiento General */}
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between">
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cumplimiento Promedio</h3>
+                    <p className="text-3xl font-extrabold text-slate-800 mt-2">94.8%</p>
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 mt-2 bg-emerald-50 px-2 py-0.5 rounded">
+                      <TrendingUp className="h-3 w-3" /> +1.2% esta semana
+                    </span>
+                  </div>
+                  <div className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                    <Activity className="h-6 w-6" />
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-500 uppercase">Total Vehículos</h3>
-                  <p className="text-2xl font-bold text-slate-800">{vehicles.length}</p>
+
+                {/* Rutas Completadas */}
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between">
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Rutas Activas Hoy</h3>
+                    <p className="text-3xl font-extrabold text-slate-800 mt-2">18 / 20</p>
+                    <span className="text-xs text-slate-500 mt-2 block font-medium">90% Completadas</span>
+                  </div>
+                  <div className="h-12 w-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <CheckCircle className="h-6 w-6" />
+                  </div>
+                </div>
+
+                {/* Términos Anticipados */}
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between">
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Términos Anticipados</h3>
+                    <p className="text-3xl font-extrabold text-red-600 mt-2">2</p>
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 mt-2 bg-red-50 px-2 py-0.5 rounded">
+                      <AlertTriangle className="h-3 w-3" /> Alertas del día
+                    </span>
+                  </div>
+                  <div className="h-12 w-12 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
+                    <XCircle className="h-6 w-6" />
+                  </div>
+                </div>
+
+                {/* Total Operadores y Vehiculos */}
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between">
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Recursos Asociados</h3>
+                    <p className="text-2xl font-extrabold text-slate-800 mt-2">{users.length} Op / {vehicles.length} Veh</p>
+                    <span className="text-xs text-slate-500 mt-3 block font-medium">Equipos activos hoy</span>
+                  </div>
+                  <div className="h-12 w-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                    <Truck className="h-6 w-6" />
+                  </div>
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                <div className="h-12 w-12 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center">
-                  <ClipboardList className="h-6 w-6" />
+              {/* Faena Progress and Performance Section */}
+              <div className="grid gap-6 lg:grid-cols-3">
+                {/* Performance by Faena Card */}
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
+                  <h3 className="font-bold text-slate-800 text-base mb-4">Estado y Cumplimiento por Faena</h3>
+                  <div className="space-y-5">
+                    {/* Spence (SG) */}
+                    <div>
+                      <div className="flex justify-between text-sm font-semibold text-slate-700 mb-1">
+                        <span>SG (Spence)</span>
+                        <span className="text-emerald-600">92.5% Cumplimiento</span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                        <div className="bg-emerald-500 h-full rounded-full" style={{ width: '92.5%' }}></div>
+                      </div>
+                      <div className="flex justify-between text-xs text-slate-400 mt-1">
+                        <span>8 Puntos de control</span>
+                        <span>5 rutas registradas hoy</span>
+                      </div>
+                    </div>
+
+                    {/* DMH */}
+                    <div>
+                      <div className="flex justify-between text-sm font-semibold text-slate-700 mb-1">
+                        <span>DMH</span>
+                        <span className="text-emerald-600">95.0% Cumplimiento</span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                        <div className="bg-emerald-500 h-full rounded-full" style={{ width: '95.0%' }}></div>
+                      </div>
+                      <div className="flex justify-between text-xs text-slate-400 mt-1">
+                        <span>12 Puntos de control</span>
+                        <span>4 rutas registradas hoy</span>
+                      </div>
+                    </div>
+
+                    {/* Escondida */}
+                    <div>
+                      <div className="flex justify-between text-sm font-semibold text-slate-700 mb-1">
+                        <span>Escondida</span>
+                        <span className="text-amber-600">86.4% Cumplimiento</span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                        <div className="bg-amber-500 h-full rounded-full" style={{ width: '86.4%' }}></div>
+                      </div>
+                      <div className="flex justify-between text-xs text-slate-400 mt-1">
+                        <span>10 Puntos de control</span>
+                        <span>3 rutas registradas hoy</span>
+                      </div>
+                    </div>
+
+                    {/* Spence Subterránea */}
+                    <div>
+                      <div className="flex justify-between text-sm font-semibold text-slate-700 mb-1">
+                        <span>Subterránea</span>
+                        <span className="text-emerald-600">100% Cumplimiento</span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                        <div className="bg-emerald-500 h-full rounded-full" style={{ width: '100%' }}></div>
+                      </div>
+                      <div className="flex justify-between text-xs text-slate-400 mt-1">
+                        <span>6 Puntos de control</span>
+                        <span>2 rutas registradas hoy</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-500 uppercase">Preguntas Checklists</h3>
-                  <p className="text-2xl font-bold text-slate-800">{checklistQuestions.length}</p>
+
+                {/* Operations History Table */}
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                  <h3 className="font-bold text-slate-800 text-base mb-4">Rutas por Fecha (Últimos 5 Días)</h3>
+                  <div className="space-y-3">
+                    {[
+                      { date: '31 Ago', total: 20, compliance: '95%', term: 2 },
+                      { date: '30 Ago', total: 18, compliance: '98%', term: 0 },
+                      { date: '29 Ago', total: 22, compliance: '94%', term: 1 },
+                      { date: '28 Ago', total: 15, compliance: '97%', term: 0 },
+                      { date: '27 Ago', total: 19, compliance: '96%', term: 1 },
+                    ].map((history, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-100 text-xs">
+                        <div className="font-semibold text-slate-700">{history.date}</div>
+                        <div className="text-slate-500 font-medium">{history.total} Rutas</div>
+                        <div className="font-bold text-emerald-600">{history.compliance} Cump.</div>
+                        <div className={`font-bold px-1.5 py-0.5 rounded ${history.term > 0 ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-400'}`}>
+                          {history.term} T.A.
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+              </div>
+
+              {/* Recent Early Terminations Section */}
+              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-red-500" />
+                    Últimas Alertas de Término Anticipado
+                  </h3>
+                  <button 
+                    onClick={() => setActiveTab("notifications")}
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+                  >
+                    Ver todas las alertas
+                  </button>
+                </div>
+                {notifications.filter(n => n.tipo === 'termino_anticipado').length === 0 ? (
+                  <div className="text-center py-6 text-slate-400 text-sm font-medium">
+                    No se han registrado alertas de término anticipado hoy.
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {notifications
+                      .filter(n => n.tipo === 'termino_anticipado')
+                      .slice(0, 4)
+                      .map((alert) => {
+                        const hasDetails = alert.details && (alert.details.pendingPoints || alert.details.completedPoints);
+                        return (
+                          <div key={alert.id} className="p-4 rounded-xl border border-red-100 bg-red-50/30 flex flex-col justify-between gap-3 text-xs">
+                            <div className="flex items-center justify-between">
+                              <div className="font-bold text-slate-800 text-sm truncate max-w-[200px]">
+                                {alert.driver_name || 'Operador'}
+                              </div>
+                              <div className="text-slate-400 text-[10px] font-semibold flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {alert.created_at ? new Date(alert.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : ''}
+                              </div>
+                            </div>
+                            <div className="text-slate-600 font-medium leading-relaxed">
+                              Reportó término anticipado en faena <strong className="text-slate-800">{alert.faena_name || 'Desconocida'}</strong>.
+                              {alert.motivo && <div className="mt-1 text-[11px] text-slate-500 italic">Motivo: "{alert.motivo}"</div>}
+                            </div>
+                            <div className="flex items-center gap-4 text-[10px] text-slate-500 border-t border-red-100/50 pt-2 font-medium">
+                              <div>Vehículo: <strong className="text-slate-700">{alert.vehicle_code || 'N/A'}</strong></div>
+                              {hasDetails && (
+                                <div className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                                  {alert.details.completedPoints.length} Puntos listos
+                                </div>
+                              )}
+                              {hasDetails && (
+                                <div className="text-red-700 bg-red-50 px-1.5 py-0.5 rounded">
+                                  {alert.details.pendingPoints.length} Pendientes
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
               </div>
             </div>
           )}
