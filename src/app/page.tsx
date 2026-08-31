@@ -544,12 +544,32 @@ export default function HomePage() {
 
       const earlyTerminationsMap: Record<string, any> = {};
       allNotifications?.forEach(n => {
-        if (n.tipo === 'termino_anticipado' && n.details) {
-          const detailsObj = typeof n.details === 'string' ? JSON.parse(n.details) : n.details;
-          const routeStartId = detailsObj?.routeStartId || detailsObj?.route_start_id;
-          if (routeStartId) {
-            earlyTerminationsMap[routeStartId] = n;
+        if (n.tipo === 'termino_anticipado') {
+          // Timezone robust date formatting
+          const localDate = new Date(n.created_at);
+          const year = localDate.getFullYear();
+          const month = String(localDate.getMonth() + 1).padStart(2, '0');
+          const day = String(localDate.getDate()).padStart(2, '0');
+          const dateStr = `${year}-${month}-${day}`;
+          
+          const rut = n.driver_rut || "";
+          const faena = n.faena_name || "";
+          const vehicle = n.vehicle_code || "";
+          
+          // Primary key mapping by routeStartId in details if it exists
+          if (n.details) {
+            try {
+              const detailsObj = typeof n.details === 'string' ? JSON.parse(n.details) : n.details;
+              const routeStartId = detailsObj?.routeStartId || detailsObj?.route_start_id;
+              if (routeStartId) {
+                earlyTerminationsMap[routeStartId] = n;
+              }
+            } catch (_) {}
           }
+          
+          // Fallback heuristic mapping key
+          const key = `${dateStr}_${rut}_${faena}_${vehicle}`;
+          earlyTerminationsMap[key] = n;
         }
       });
 
@@ -572,10 +592,19 @@ export default function HomePage() {
         let estado = "En Proceso";
         let motivoTermino = undefined;
         
-        const earlyTermNotification = earlyTerminationsMap[start.id];
+        const recordDateStr = start.fecha_inicio;
+        const driverRut = user?.rut || "";
+        const lookupKey = `${recordDateStr}_${driverRut}_${faenaName}_${start.vehicle_code}`;
+        
+        const earlyTermNotification = earlyTerminationsMap[start.id] || earlyTerminationsMap[lookupKey];
         if (earlyTermNotification) {
           estado = "Término Anticipado";
           motivoTermino = earlyTermNotification.motivo || "No especificado";
+          
+          if (earlyTermNotification.created_at) {
+            const lastCheckinTime = new Date(earlyTermNotification.created_at);
+            horaFin = lastCheckinTime.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+          }
         } else if (completedPoints === totalPoints && totalPoints > 0) {
           estado = "Finalizada";
         }
