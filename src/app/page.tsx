@@ -517,21 +517,33 @@ export default function HomePage() {
       }
 
       const [
-        { data: allUsers },
-        { data: allFaenas },
-        { data: allPoints },
-        { data: allCheckins },
-        { data: allNotifications }
+        usersRes,
+        faenasRes,
+        pointsRes,
+        checkinsRes,
+        notificationsRes
       ] = await Promise.all([
         supabase.from("app_users").select("id, nombre, rut"),
         supabase.from("faenas").select("id, nombre"),
-        supabase.from("faena_points").select("id, faena_id, codigo, nombre, latitude, longitude"),
+        supabase.from("faena_points").select("id, faena_id, codigo, latitude, longitude"),
         supabase.from("point_checkins").select("point_id, route_start_id, created_at"),
         supabase.from("app_notifications").select("tipo, created_at, driver_rut, faena_name, vehicle_code, motivo, details")
       ]);
 
+      if (usersRes.error) console.error("fetchRouteRecords app_users error:", usersRes.error);
+      if (faenasRes.error) console.error("fetchRouteRecords faenas error:", faenasRes.error);
+      if (pointsRes.error) console.error("fetchRouteRecords faena_points error:", pointsRes.error);
+      if (checkinsRes.error) console.error("fetchRouteRecords point_checkins error:", checkinsRes.error);
+      if (notificationsRes.error) console.error("fetchRouteRecords app_notifications error:", notificationsRes.error);
+
+      const allUsers = usersRes.data || [];
+      const allFaenas = faenasRes.data || [];
+      const allPoints = pointsRes.data || [];
+      const allCheckins = checkinsRes.data || [];
+      const allNotifications = notificationsRes.data || [];
+
       const userMap: Record<string, any> = {};
-      allUsers?.forEach(u => {
+      allUsers.forEach(u => {
         userMap[u.id] = u;
       });
 
@@ -630,7 +642,7 @@ export default function HomePage() {
           return {
             id: pt.id,
             codigo: pt.codigo || "Sin Código",
-            nombre: pt.nombre || "",
+            nombre: "",
             latitude: pt.latitude || 0,
             longitude: pt.longitude || 0,
             completado: !!checkin,
