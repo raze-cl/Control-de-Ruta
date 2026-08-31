@@ -105,6 +105,26 @@ interface FaenaPoint {
   created_at?: string;
 }
 
+interface RouteRecord {
+  id: string;
+  user_id: string;
+  vehicle_code: string;
+  faena_id: string;
+  fecha_inicio: string;
+  hora_inicio: string;
+  latitud_inicio?: number;
+  longitud_inicio?: number;
+  created_at: string;
+  faena_name?: string;
+  driver_name?: string;
+  driver_rut?: string;
+  hora_fin?: string;
+  progreso_puntos?: string;
+  progreso_porcentaje?: number;
+  estado?: string;
+  motivo_termino?: string;
+}
+
 interface AppNotification {
   id: string;
   created_at: string;
@@ -181,6 +201,15 @@ export default function HomePage() {
   const [deleteNotificationPassword, setDeleteNotificationPassword] = useState("");
   const [deleteNotificationError, setDeleteNotificationError] = useState("");
   const [deletingNotification, setDeletingNotification] = useState(false);
+
+  // Route Records State
+  const [routeRecords, setRouteRecords] = useState<RouteRecord[]>([]);
+  const [loadingRouteRecords, setLoadingRouteRecords] = useState(true);
+  const [routeFilterFaena, setRouteFilterFaena] = useState("");
+  const [routeFilterDriver, setRouteFilterDriver] = useState("");
+  const [routeFilterVehicle, setRouteFilterVehicle] = useState("");
+  const [routeFilterStatus, setRouteFilterStatus] = useState("");
+  const [routeFilterDate, setRouteFilterDate] = useState("");
 
   // Users CRUD State
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -459,6 +488,125 @@ export default function HomePage() {
     }
   };
 
+  // Load route starts and calculated records
+  const fetchRouteRecords = async () => {
+    setLoadingRouteRecords(true);
+    try {
+      const { data: starts, error: startsError } = await supabase
+        .from("route_starts")
+        .select("*")
+        .order("fecha_inicio", { ascending: false })
+        .order("hora_inicio", { ascending: false });
+
+      if (startsError) throw startsError;
+      if (!starts) {
+        setRouteRecords([]);
+        return;
+      }
+
+      const [
+        { data: allUsers },
+        { data: allFaenas },
+        { data: allPoints },
+        { data: allCheckins },
+        { data: allNotifications }
+      ] = await Promise.all([
+        supabase.from("app_users").select("id, nombre, rut"),
+        supabase.from("faenas").select("id, nombre"),
+        supabase.from("faena_points").select("id, faena_id"),
+        supabase.from("point_checkins").select("point_id, route_start_id, created_at"),
+        supabase.from("app_notifications").select("tipo, created_at, driver_rut, faena_name, vehicle_code, motivo, details")
+      ]);
+
+      const userMap: Record<string, any> = {};
+      allUsers?.forEach(u => {
+        userMap[u.id] = u;
+      });
+
+      const faenaMap: Record<string, string> = {};
+      allFaenas?.forEach(f => {
+        faenaMap[f.id] = f.nombre;
+      });
+      
+      const faenaPointsCountMap: Record<string, number> = {};
+      allPoints?.forEach(p => {
+        faenaPointsCountMap[p.faena_id] = (faenaPointsCountMap[p.faena_id] || 0) + 1;
+      });
+
+      const checkinsByRouteMap: Record<string, any[]> = {};
+      allCheckins?.forEach(c => {
+        if (!c.route_start_id) return;
+        if (!checkinsByRouteMap[c.route_start_id]) {
+          checkinsByRouteMap[c.route_start_id] = [];
+        }
+        checkinsByRouteMap[c.route_start_id].push(c);
+      });
+
+      const earlyTerminationsMap: Record<string, any> = {};
+      allNotifications?.forEach(n => {
+        if (n.tipo === 'termino_anticipado' && n.details) {
+          const detailsObj = typeof n.details === 'string' ? JSON.parse(n.details) : n.details;
+          const routeStartId = detailsObj?.routeStartId || detailsObj?.route_start_id;
+          if (routeStartId) {
+            earlyTerminationsMap[routeStartId] = n;
+          }
+        }
+      });
+
+      const assembled: RouteRecord[] = starts.map(start => {
+        const user = userMap[start.user_id];
+        const faenaName = faenaMap[start.faena_id] || "Faena Desconocida";
+        const totalPoints = faenaPointsCountMap[start.faena_id] || 0;
+        const checkins = checkinsByRouteMap[start.id] || [];
+        const completedPoints = checkins.length;
+        
+        const progressPercent = totalPoints > 0 ? Math.round((completedPoints / totalPoints) * 100) : 0;
+        
+        let horaFin = "-";
+        if (completedPoints === totalPoints && totalPoints > 0 && checkins.length > 0) {
+          const sorted = [...checkins].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+          const lastCheckinTime = new Date(sorted[sorted.length - 1].created_at);
+          horaFin = lastCheckinTime.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        let estado = "En Proceso";
+        let motivoTermino = undefined;
+        
+        const earlyTermNotification = earlyTerminationsMap[start.id];
+        if (earlyTermNotification) {
+          estado = "Término Anticipado";
+          motivoTermino = earlyTermNotification.motivo || "No especificado";
+        } else if (completedPoints === totalPoints && totalPoints > 0) {
+          estado = "Finalizada";
+        }
+
+        return {
+          id: start.id,
+          user_id: start.user_id,
+          vehicle_code: start.vehicle_code,
+          faena_id: start.faena_id,
+          fecha_inicio: start.fecha_inicio,
+          hora_inicio: start.hora_inicio?.slice(0, 5) || "-",
+          created_at: start.created_at,
+          faena_name: faenaName,
+          driver_name: user?.nombre || "Chofer Desconocido",
+          driver_rut: user?.rut || "N/A",
+          hora_fin: horaFin,
+          progreso_puntos: `${completedPoints}/${totalPoints}`,
+          progreso_porcentaje: progressPercent,
+          estado: estado,
+          motivo_termino: motivoTermino
+        };
+      });
+
+      setRouteRecords(assembled);
+    } catch (err: any) {
+      console.error("Error fetching route records:", err.message);
+    } finally {
+      setLoadingRouteRecords(false);
+    }
+  };
+
   // Toggle notification read status in Supabase
   const toggleNotificationRead = async (id: string, currentReadStatus: boolean) => {
     try {
@@ -537,6 +685,7 @@ export default function HomePage() {
       fetchChecklistSubmissions();
       fetchChecklistSections();
       fetchNotifications();
+      fetchRouteRecords();
     }
   }, [isLoggedIn]);
 
@@ -1724,6 +1873,15 @@ export default function HomePage() {
   // Dashboard Interface
   const unreadCount = notifications.filter(n => !n.leida).length;
 
+  const filteredRouteRecords = routeRecords.filter(record => {
+    if (routeFilterFaena && record.faena_id !== routeFilterFaena) return false;
+    if (routeFilterDriver && !record.driver_name?.toLowerCase().includes(routeFilterDriver.toLowerCase()) && !record.driver_rut?.includes(routeFilterDriver)) return false;
+    if (routeFilterVehicle && !record.vehicle_code?.toLowerCase().includes(routeFilterVehicle.toLowerCase())) return false;
+    if (routeFilterStatus && record.estado !== routeFilterStatus) return false;
+    if (routeFilterDate && record.fecha_inicio !== routeFilterDate) return false;
+    return true;
+  });
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
       {/* Sidebar Component */}
@@ -1842,6 +2000,18 @@ export default function HomePage() {
           >
             <LayoutDashboard className="h-5 w-5 shrink-0" />
             {isSidebarExpanded && <span>Dashboard</span>}
+          </button>
+
+          <button
+            onClick={() => setActiveTab("route_records")}
+            className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+              activeTab === "route_records"
+                ? "bg-blue-600 text-white shadow"
+                : "text-slate-400 hover:bg-slate-800 hover:text-white"
+            }`}
+          >
+            <Clock className="h-5 w-5 shrink-0" />
+            {isSidebarExpanded && <span>Registros de Rutas</span>}
           </button>
         </nav>
 
@@ -3558,6 +3728,238 @@ export default function HomePage() {
                           </div>
                         );
                       })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "route_records" && (
+            <div className="space-y-6 text-slate-700 font-sans">
+              {/* Header and Refresh Button */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-800">Registros de Inicio y Término de Ruta</h2>
+                  <p className="text-sm text-slate-500 mt-1">Monitoreo histórico y en tiempo real del progreso de jornadas de rutas.</p>
+                </div>
+                <button
+                  onClick={fetchRouteRecords}
+                  disabled={loadingRouteRecords}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  {loadingRouteRecords ? (
+                    <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  ) : (
+                    <Activity className="h-4 w-4" />
+                  )}
+                  Actualizar Registros
+                </button>
+              </div>
+
+              {/* Filtering Controls */}
+              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                <h3 className="text-sm font-bold text-slate-800">Filtros de Búsqueda</h3>
+                <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-5">
+                  {/* Filter by Faena */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Faena</label>
+                    <select
+                      value={routeFilterFaena}
+                      onChange={(e) => setRouteFilterFaena(e.target.value)}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    >
+                      <option value="">Todas las Faenas</option>
+                      {faenas.map((f) => (
+                        <option key={f.id} value={f.id}>{f.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Filter by Operator */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Operador (Nombre o RUT)</label>
+                    <input
+                      type="text"
+                      placeholder="Buscar operador..."
+                      value={routeFilterDriver}
+                      onChange={(e) => setRouteFilterDriver(e.target.value)}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Filter by Vehicle */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Vehículo (Patente/Código)</label>
+                    <input
+                      type="text"
+                      placeholder="Buscar vehículo..."
+                      value={routeFilterVehicle}
+                      onChange={(e) => setRouteFilterVehicle(e.target.value)}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Filter by Status */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Estado</label>
+                    <select
+                      value={routeFilterStatus}
+                      onChange={(e) => setRouteFilterStatus(e.target.value)}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    >
+                      <option value="">Todos los Estados</option>
+                      <option value="En Proceso">En Proceso</option>
+                      <option value="Finalizada">Finalizadas</option>
+                      <option value="Término Anticipado">Términos Anticipados</option>
+                    </select>
+                  </div>
+
+                  {/* Filter by Date */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Fecha de Inicio</label>
+                    <input
+                      type="date"
+                      value={routeFilterDate}
+                      onChange={(e) => setRouteFilterDate(e.target.value)}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2 border-t border-slate-100">
+                  <button
+                    onClick={() => {
+                      setRouteFilterFaena("");
+                      setRouteFilterDriver("");
+                      setRouteFilterVehicle("");
+                      setRouteFilterStatus("");
+                      setRouteFilterDate("");
+                    }}
+                    className="text-xs font-bold text-slate-500 hover:text-blue-600 transition-colors"
+                  >
+                    Restablecer Filtros
+                  </button>
+                </div>
+              </div>
+
+              {/* Records List/Table */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                {loadingRouteRecords ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+                    <span className="h-8 w-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-2"></span>
+                    <p className="text-sm font-semibold">Cargando registros de rutas...</p>
+                  </div>
+                ) : filteredRouteRecords.length === 0 ? (
+                  <div className="text-center py-20 text-slate-400">
+                    <Clock className="h-16 w-16 text-slate-200 mx-auto mb-4" />
+                    <h3 className="text-sm font-bold text-slate-600">Sin Registros</h3>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+                      No se encontraron registros de rutas que coincidan con los filtros aplicados.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-left text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase text-[11px] tracking-wider">
+                          <th className="px-6 py-3.5">Faena</th>
+                          <th className="px-6 py-3.5">Operador</th>
+                          <th className="px-6 py-3.5">Vehículo</th>
+                          <th className="px-6 py-3.5">Inicio Ruta</th>
+                          <th className="px-6 py-3.5">Fin Ruta</th>
+                          <th className="px-6 py-3.5">Cumplimiento / Progreso</th>
+                          <th className="px-6 py-3.5">Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {filteredRouteRecords.map((record) => {
+                          const isEnProceso = record.estado === "En Proceso";
+                          const isFinalizada = record.estado === "Finalizada";
+                          const isEarlyTerm = record.estado === "Término Anticipado";
+
+                          return (
+                            <tr key={record.id} className="hover:bg-slate-50/50 transition-colors">
+                              {/* Faena */}
+                              <td className="px-6 py-4 font-semibold text-slate-800">
+                                {record.faena_name}
+                              </td>
+
+                              {/* Operador */}
+                              <td className="px-6 py-4">
+                                <div className="font-semibold">{record.driver_name}</div>
+                                <div className="text-slate-400 text-xs mt-0.5">{record.driver_rut}</div>
+                              </td>
+
+                              {/* Vehículo */}
+                              <td className="px-6 py-4 font-mono font-medium text-slate-600">
+                                {record.vehicle_code}
+                              </td>
+
+                              {/* Inicio Ruta */}
+                              <td className="px-6 py-4">
+                                <div className="font-semibold">
+                                  {record.fecha_inicio ? new Date(record.fecha_inicio + "T00:00:00").toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : "-"}
+                                </div>
+                                <div className="text-slate-400 text-xs mt-0.5">{record.hora_inicio}</div>
+                              </td>
+
+                              {/* Fin Ruta */}
+                              <td className="px-6 py-4">
+                                {isEnProceso ? (
+                                  <span className="text-slate-400 text-xs flex items-center gap-1.5 font-medium">
+                                    <span className="h-1.5 w-1.5 bg-blue-500 rounded-full animate-ping"></span>
+                                    En proceso...
+                                  </span>
+                                ) : (
+                                  <span className="font-semibold text-slate-700">
+                                    {record.hora_fin}
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Cumplimiento / Progreso */}
+                              <td className="px-6 py-4 min-w-[150px]">
+                                <div className="flex items-center gap-3">
+                                  <span className="font-bold text-xs shrink-0 text-slate-600">
+                                    {record.progreso_puntos} ({record.progreso_porcentaje}%)
+                                  </span>
+                                  <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden shrink-0">
+                                    <div 
+                                      className={`h-full rounded-full ${
+                                        isFinalizada ? 'bg-emerald-500' : isEarlyTerm ? 'bg-red-500' : 'bg-blue-500'
+                                      }`}
+                                      style={{ width: `${record.progreso_porcentaje}%` }}
+                                    ></div>
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* Estado */}
+                              <td className="px-6 py-4">
+                                {isEnProceso && (
+                                  <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full text-xs font-bold border border-blue-100">
+                                    En Proceso
+                                  </span>
+                                )}
+                                {isFinalizada && (
+                                  <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full text-xs font-bold border border-emerald-100">
+                                    Finalizada
+                                  </span>
+                                )}
+                                {isEarlyTerm && (
+                                  <span 
+                                    className="inline-flex items-center gap-1 bg-red-50 text-red-700 px-2.5 py-1 rounded-full text-xs font-bold border border-red-100 cursor-help"
+                                    title={`Motivo: ${record.motivo_termino}`}
+                                  >
+                                    T. Anticipado
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>
