@@ -657,6 +657,8 @@ export default function HomePage() {
           faena_id: start.faena_id,
           fecha_inicio: start.fecha_inicio,
           hora_inicio: start.hora_inicio?.slice(0, 5) || "-",
+          latitud_inicio: start.latitud_inicio,
+          longitud_inicio: start.longitud_inicio,
           created_at: start.created_at,
           faena_name: faenaName,
           driver_name: user?.nombre || "Chofer Desconocido",
@@ -3937,6 +3939,7 @@ export default function HomePage() {
                           <th className="px-6 py-3.5">Operador</th>
                           <th className="px-6 py-3.5">Vehículo</th>
                           <th className="px-6 py-3.5">Inicio Ruta</th>
+                          <th className="px-6 py-3.5">GPS Inicio</th>
                           <th className="px-6 py-3.5">Fin Ruta</th>
                           <th className="px-6 py-3.5">Cumplimiento / Progreso</th>
                           <th className="px-6 py-3.5">Estado</th>
@@ -3977,6 +3980,34 @@ export default function HomePage() {
                                   {record.fecha_inicio ? new Date(record.fecha_inicio + "T00:00:00").toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : "-"}
                                 </div>
                                 <div className="text-slate-400 text-xs mt-0.5">{record.hora_inicio}</div>
+                              </td>
+
+                              {/* GPS Inicio */}
+                              <td className="px-6 py-4">
+                                {record.latitud_inicio && record.longitud_inicio ? (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedPointForMap({
+                                        id: record.id,
+                                        faena_id: record.faena_id,
+                                        codigo: `Inicio Ruta: ${record.faena_name} (${record.driver_name})`,
+                                        latitude: record.latitud_inicio!,
+                                        longitude: record.longitud_inicio!,
+                                      });
+                                      setIsPointMapModalOpen(true);
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 text-xs font-semibold transition-colors group"
+                                    title="Ver punto de inicio GPS en mapa"
+                                  >
+                                    <MapPin className="h-3.5 w-3.5 text-blue-600 group-hover:scale-110 transition-transform shrink-0" />
+                                    <span className="font-mono text-[11px]">
+                                      {record.latitud_inicio.toFixed(4)}, {record.longitud_inicio.toFixed(4)}
+                                    </span>
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-400 text-xs italic">Sin GPS</span>
+                                )}
                               </td>
 
                               {/* Fin Ruta */}
@@ -4075,7 +4106,7 @@ export default function HomePage() {
                     {/* Modal Content */}
                     <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto text-slate-700">
                       {/* Route Summary Row */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs">
                         <div>
                           <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Operador</span>
                           <span className="font-bold text-slate-800">{selectedRouteForModal.driver_name}</span>
@@ -4089,6 +4120,30 @@ export default function HomePage() {
                           <span className="font-semibold text-slate-800">
                             {selectedRouteForModal.fecha_inicio ? new Date(selectedRouteForModal.fecha_inicio + "T00:00:00").toLocaleDateString('es-CL') : "-"} {selectedRouteForModal.hora_inicio}
                           </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">GPS Inicio</span>
+                          {selectedRouteForModal.latitud_inicio && selectedRouteForModal.longitud_inicio ? (
+                            <button
+                              onClick={() => {
+                                setSelectedPointForMap({
+                                  id: selectedRouteForModal.id,
+                                  faena_id: selectedRouteForModal.faena_id,
+                                  codigo: `Inicio Ruta: ${selectedRouteForModal.faena_name} (${selectedRouteForModal.driver_name})`,
+                                  latitude: selectedRouteForModal.latitud_inicio!,
+                                  longitude: selectedRouteForModal.longitud_inicio!,
+                                });
+                                setIsPointMapModalOpen(true);
+                              }}
+                              className="inline-flex items-center gap-1 text-blue-600 hover:underline font-mono text-[11px] font-bold"
+                              title="Ver ubicación GPS de inicio"
+                            >
+                              <MapPin className="h-3 w-3 text-blue-500 shrink-0" />
+                              {selectedRouteForModal.latitud_inicio.toFixed(4)}, {selectedRouteForModal.longitud_inicio.toFixed(4)}
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 italic">Sin GPS</span>
+                          )}
                         </div>
                         <div>
                           <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Estado de Ruta</span>
@@ -4128,10 +4183,23 @@ export default function HomePage() {
                                     <span className="text-slate-400 font-mono text-xs">{idx + 1}.</span>
                                     {pt.codigo}
                                   </div>
-                                  {pt.nombre && (
-                                    <div className="text-slate-500 text-[11px] font-medium">{pt.nombre}</div>
-                                  )}
-                                  <div className="text-[10px] text-slate-400">Coordenadas: {pt.latitude.toFixed(5)}, {pt.longitude.toFixed(5)}</div>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedPointForMap({
+                                        id: pt.id,
+                                        faena_id: selectedRouteForModal.faena_id,
+                                        codigo: pt.codigo,
+                                        latitude: pt.latitude,
+                                        longitude: pt.longitude,
+                                      });
+                                      setIsPointMapModalOpen(true);
+                                    }}
+                                    className="text-[10px] text-blue-600 hover:underline flex items-center gap-1 font-mono"
+                                    title="Ver punto en mapa"
+                                  >
+                                    <MapPin className="h-3 w-3 text-blue-500" />
+                                    {pt.latitude.toFixed(5)}, {pt.longitude.toFixed(5)}
+                                  </button>
                                 </div>
 
                                 <div className="flex flex-col items-end gap-1.5">
