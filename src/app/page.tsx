@@ -105,6 +105,16 @@ interface FaenaPoint {
   created_at?: string;
 }
 
+interface RoutePointDetail {
+  id: string;
+  codigo: string;
+  nombre?: string;
+  latitude: number;
+  longitude: number;
+  completado: boolean;
+  fecha_completado?: string;
+}
+
 interface RouteRecord {
   id: string;
   user_id: string;
@@ -123,6 +133,7 @@ interface RouteRecord {
   progreso_porcentaje?: number;
   estado?: string;
   motivo_termino?: string;
+  puntos_detalle?: RoutePointDetail[];
 }
 
 interface AppNotification {
@@ -210,6 +221,7 @@ export default function HomePage() {
   const [routeFilterVehicle, setRouteFilterVehicle] = useState("");
   const [routeFilterStatus, setRouteFilterStatus] = useState("");
   const [routeFilterDate, setRouteFilterDate] = useState("");
+  const [selectedRouteForModal, setSelectedRouteForModal] = useState<RouteRecord | null>(null);
 
   // Users CRUD State
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -513,7 +525,7 @@ export default function HomePage() {
       ] = await Promise.all([
         supabase.from("app_users").select("id, nombre, rut"),
         supabase.from("faenas").select("id, nombre"),
-        supabase.from("faena_points").select("id, faena_id"),
+        supabase.from("faena_points").select("id, faena_id, codigo, nombre, latitude, longitude"),
         supabase.from("point_checkins").select("point_id, route_start_id, created_at"),
         supabase.from("app_notifications").select("tipo, created_at, driver_rut, faena_name, vehicle_code, motivo, details")
       ]);
@@ -609,6 +621,23 @@ export default function HomePage() {
           estado = "Finalizada";
         }
 
+        // Filter points for this faena
+        const faenaPointsList = allPoints?.filter(p => p.faena_id === start.faena_id) || [];
+        
+        // Map points to RoutePointDetail
+        const puntosDetalle: RoutePointDetail[] = faenaPointsList.map(pt => {
+          const checkin = checkins.find(c => c.point_id === pt.id);
+          return {
+            id: pt.id,
+            codigo: pt.codigo || "Sin Código",
+            nombre: pt.nombre || "",
+            latitude: pt.latitude || 0,
+            longitude: pt.longitude || 0,
+            completado: !!checkin,
+            fecha_completado: checkin?.created_at
+          };
+        });
+
         return {
           id: start.id,
           user_id: start.user_id,
@@ -624,7 +653,8 @@ export default function HomePage() {
           progreso_puntos: `${completedPoints}/${totalPoints}`,
           progreso_porcentaje: progressPercent,
           estado: estado,
-          motivo_termino: motivoTermino
+          motivo_termino: motivoTermino,
+          puntos_detalle: puntosDetalle
         };
       });
 
@@ -3898,6 +3928,7 @@ export default function HomePage() {
                           <th className="px-6 py-3.5">Fin Ruta</th>
                           <th className="px-6 py-3.5">Cumplimiento / Progreso</th>
                           <th className="px-6 py-3.5">Estado</th>
+                          <th className="px-6 py-3.5 text-center">Detalle</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -3907,7 +3938,11 @@ export default function HomePage() {
                           const isEarlyTerm = record.estado === "Término Anticipado";
 
                           return (
-                            <tr key={record.id} className="hover:bg-slate-50/50 transition-colors">
+                            <tr 
+                              key={record.id} 
+                              onClick={() => setSelectedRouteForModal(record)}
+                              className="hover:bg-slate-100/50 transition-colors cursor-pointer"
+                            >
                               {/* Faena */}
                               <td className="px-6 py-4 font-semibold text-slate-800">
                                 {record.faena_name}
@@ -3984,6 +4019,20 @@ export default function HomePage() {
                                   </span>
                                 )}
                               </td>
+
+                              {/* Detalle Icon */}
+                              <td className="px-6 py-4 text-center">
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedRouteForModal(record);
+                                  }}
+                                  className="inline-flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition-colors"
+                                  title="Ver detalle de puntos"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+                              </td>
                             </tr>
                           );
                         })}
@@ -3992,6 +4041,124 @@ export default function HomePage() {
                   </div>
                 )}
               </div>
+
+              {/* Selected Route Record Points Detail Modal */}
+              {selectedRouteForModal && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-slate-200 overflow-hidden font-sans">
+                    {/* Modal Header */}
+                    <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+                      <div>
+                        <h3 className="font-bold text-lg">Detalle de Puntos de Control</h3>
+                        <p className="text-xs text-slate-400 mt-0.5">Faena: {selectedRouteForModal.faena_name}</p>
+                      </div>
+                      <button
+                        onClick={() => setSelectedRouteForModal(null)}
+                        className="text-slate-400 hover:text-white text-lg font-bold"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    {/* Modal Content */}
+                    <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto text-slate-700">
+                      {/* Route Summary Row */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Operador</span>
+                          <span className="font-bold text-slate-800">{selectedRouteForModal.driver_name}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Vehículo</span>
+                          <span className="font-bold text-slate-800 font-mono">{selectedRouteForModal.vehicle_code}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Fecha / Hora Inicio</span>
+                          <span className="font-semibold text-slate-800">
+                            {selectedRouteForModal.fecha_inicio ? new Date(selectedRouteForModal.fecha_inicio + "T00:00:00").toLocaleDateString('es-CL') : "-"} {selectedRouteForModal.hora_inicio}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Estado de Ruta</span>
+                          <span className={`inline-block px-2 py-0.5 rounded font-bold text-[10px] ${
+                            selectedRouteForModal.estado === "Finalizada" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" :
+                            selectedRouteForModal.estado === "Término Anticipado" ? "bg-red-50 text-red-700 border border-red-100" :
+                            "bg-blue-50 text-blue-700 border border-blue-100"
+                          }`}>
+                            {selectedRouteForModal.estado}
+                          </span>
+                        </div>
+                      </div>
+
+                      {selectedRouteForModal.estado === "Término Anticipado" && selectedRouteForModal.motivo_termino && (
+                        <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-xs text-red-700 flex flex-col gap-1">
+                          <span className="font-bold uppercase text-[9px] tracking-wider">Motivo de Término Anticipado:</span>
+                          <span className="italic">"{selectedRouteForModal.motivo_termino}"</span>
+                        </div>
+                      )}
+
+                      {/* Points List */}
+                      <div className="space-y-3">
+                        <h4 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-1.5">Puntos de Control Configurados</h4>
+                        {!selectedRouteForModal.puntos_detalle || selectedRouteForModal.puntos_detalle.length === 0 ? (
+                          <p className="text-center py-6 text-slate-400 text-xs italic">Esta faena no tiene puntos de control configurados.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {selectedRouteForModal.puntos_detalle.map((pt, idx) => (
+                              <div 
+                                key={pt.id} 
+                                className={`flex items-center justify-between p-3.5 rounded-lg border text-xs transition-colors ${
+                                  pt.completado ? 'bg-emerald-50/20 border-emerald-100' : 'bg-slate-50/50 border-slate-100'
+                                }`}
+                              >
+                                <div className="space-y-1">
+                                  <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                                    <span className="text-slate-400 font-mono text-xs">{idx + 1}.</span>
+                                    {pt.codigo}
+                                  </div>
+                                  {pt.nombre && (
+                                    <div className="text-slate-500 text-[11px] font-medium">{pt.nombre}</div>
+                                  )}
+                                  <div className="text-[10px] text-slate-400">Coordenadas: {pt.latitude.toFixed(5)}, {pt.longitude.toFixed(5)}</div>
+                                </div>
+
+                                <div className="flex flex-col items-end gap-1.5">
+                                  {pt.completado ? (
+                                    <>
+                                      <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold text-[10px]">
+                                        <Check className="h-3 w-3" /> Completado
+                                      </span>
+                                      {pt.fecha_completado && (
+                                        <span className="text-[9px] text-slate-400 font-medium">
+                                          {new Date(pt.fecha_completado).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold text-[10px]">
+                                      <Clock className="h-3 w-3" /> Pendiente
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Modal Footer */}
+                    <div className="bg-slate-50 px-6 py-4 flex justify-end border-t border-slate-200">
+                      <button
+                        onClick={() => setSelectedRouteForModal(null)}
+                        className="rounded-lg border border-slate-300 bg-white py-2 px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
+                      >
+                        Cerrar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
