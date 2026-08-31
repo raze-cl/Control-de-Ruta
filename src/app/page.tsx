@@ -1636,11 +1636,7 @@ export default function HomePage() {
         ) : (
           <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-xl border border-slate-200">
             <div className="flex flex-col items-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 text-white shadow-lg">
-                <svg className="h-10 w-10" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2C12 2 6 8.5 6 13C6 16.3137 8.68629 19 12 19C15.3137 19 18 16.3137 18 13C18 8.5 12 2 12 2ZM12 17C9.79086 17 8 15.2091 8 13C8 11.2 12 6.5 12 6.5C12 6.5 16 11.2 16 13C16 15.2091 14.2091 17 12 17Z" />
-                </svg>
-              </div>
+              <img src="/logo.png" alt="Control de Ruta" className="h-20 w-auto object-contain" />
               <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-slate-800">
                 Control de Ruta
               </h2>
@@ -1750,11 +1746,7 @@ export default function HomePage() {
 
         {/* Sidebar Header */}
         <div className="flex h-16 items-center gap-3 px-6 border-b border-slate-800">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-tr from-emerald-500 to-teal-400 text-white shadow shrink-0">
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2C12 2 6 8.5 6 13C6 16.3137 8.68629 19 12 19C15.3137 19 18 16.3137 18 13C18 8.5 12 2 12 2ZM12 17C9.79086 17 8 15.2091 8 13C8 11.2 12 6.5 12 6.5C12 6.5 16 11.2 16 13C16 15.2091 14.2091 17 12 17Z" />
-            </svg>
-          </div>
+          <img src="/logo.png" alt="Logo" className="h-8 w-auto object-contain shrink-0" />
           {isSidebarExpanded && (
             <span className="font-bold text-base tracking-wide text-white">
               Control de Ruta
