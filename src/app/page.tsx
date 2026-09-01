@@ -29,6 +29,7 @@ import {
   User,
   LayoutDashboard,
   CheckCircle,
+  CheckCircle2,
   XCircle,
   Eye,
   AlertCircle,
@@ -50,7 +51,13 @@ import {
   Clock,
   TrendingUp,
   Activity,
-  AlertTriangle
+  AlertTriangle,
+  Filter,
+  Copy,
+  ExternalLink,
+  Share2,
+  RotateCcw,
+  RefreshCw
 } from "lucide-react";
 
 interface AppUser {
@@ -114,6 +121,7 @@ interface RoutePointDetail {
   longitude: number;
   completado: boolean;
   fecha_completado?: string;
+  completed_at?: string;
 }
 
 interface RouteRecord {
@@ -216,6 +224,20 @@ export default function HomePage() {
   const [routeFilterStatus, setRouteFilterStatus] = useState("");
   const [routeFilterDate, setRouteFilterDate] = useState("");
   const [selectedRouteForModal, setSelectedRouteForModal] = useState<RouteRecord | null>(null);
+
+  // Dashboard Specific Filters & Evidences Modal State
+  const [dashboardDateFrom, setDashboardDateFrom] = useState("");
+  const [dashboardDateTo, setDashboardDateTo] = useState("");
+  const [dashboardFaenaFilter, setDashboardFaenaFilter] = useState("");
+  const [dashboardDatePreset, setDashboardDatePreset] = useState("all");
+  const [selectedRouteForEvidenceModal, setSelectedRouteForEvidenceModal] = useState<RouteRecord | null>(null);
+
+  // Faenas Start / End QR Modal State
+  const [selectedFaenaForQR, setSelectedFaenaForQR] = useState<Faena | null>(null);
+  const [faenaQRType, setFaenaQRType] = useState<"inicio" | "fin">("inicio");
+  const [isFaenaQRModalOpen, setIsFaenaQRModalOpen] = useState(false);
+  const [copiedVehicleLink, setCopiedVehicleLink] = useState(false);
+  const [copiedFaenaQR, setCopiedFaenaQR] = useState(false);
 
   // Users CRUD State
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -2900,6 +2922,47 @@ export default function HomePage() {
                                       </div>
                                     ) : (
                                       <div>
+                                        {/* Faena Start/End QR Codes Box */}
+                                        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
+                                          <div className="flex items-center gap-3">
+                                            <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+                                              <QrCode className="h-5 w-5" />
+                                            </div>
+                                            <div>
+                                              <div className="text-xs font-bold text-slate-800">
+                                                Códigos QR de Inicio y Término de Faena
+                                              </div>
+                                              <div className="text-[11px] text-slate-500 font-medium">
+                                                Genera los códigos QR de acceso para que los operadores validen la entrada y el cierre formal de la ruta.
+                                              </div>
+                                            </div>
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            <button
+                                              onClick={() => {
+                                                setSelectedFaenaForQR(faena);
+                                                setFaenaQRType("inicio");
+                                                setIsFaenaQRModalOpen(true);
+                                              }}
+                                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold rounded-lg border border-emerald-200 shadow-xs transition-colors cursor-pointer"
+                                            >
+                                              <QrCode className="h-3.5 w-3.5 text-emerald-600" />
+                                              QR Inicio (Entrada)
+                                            </button>
+                                            <button
+                                              onClick={() => {
+                                                setSelectedFaenaForQR(faena);
+                                                setFaenaQRType("fin");
+                                                setIsFaenaQRModalOpen(true);
+                                              }}
+                                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg border border-indigo-200 shadow-xs transition-colors cursor-pointer"
+                                            >
+                                              <QrCode className="h-3.5 w-3.5 text-indigo-600" />
+                                              QR Final (Salida)
+                                            </button>
+                                          </div>
+                                        </div>
+
                                         <div className="flex items-center justify-between mb-4">
                                           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                                             <MapPin className="h-4 w-4 text-blue-500" />
@@ -3741,217 +3804,523 @@ export default function HomePage() {
             </div>
           )}
 
-          {activeTab === "dashboard" && (
-            <div className="space-y-6 text-slate-700 font-sans">
-              {/* Dashboard Welcome Header */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <h2 className="text-xl font-bold text-slate-800">
-                      {currentAdmin?.tipo_usuario === "cliente" && currentAdmin.faena_asignada
-                        ? `Resumen Operativo — Faena ${currentAdmin.faena_asignada}`
-                        : "Resumen Operativo de Faenas y Rutas"}
-                    </h2>
-                    {currentAdmin?.tipo_usuario === "cliente" && (
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border border-emerald-200">
-                        Vista Cliente
+          {activeTab === "dashboard" && (() => {
+            // 1. Filter routes according to active dashboard filters
+            const filteredDashboardRoutes = routeRecords.filter(r => {
+              if (currentAdmin?.tipo_usuario === "cliente" && currentAdmin.faena_asignada) {
+                if (r.faena_name !== currentAdmin.faena_asignada) return false;
+              } else if (dashboardFaenaFilter) {
+                if (r.faena_name !== dashboardFaenaFilter && r.faena_id !== dashboardFaenaFilter) return false;
+              }
+              if (dashboardDateFrom && r.fecha_inicio < dashboardDateFrom) return false;
+              if (dashboardDateTo && r.fecha_inicio > dashboardDateTo) return false;
+              return true;
+            });
+
+            // 2. Computed KPI Totals
+            const dashTotalRoutes = filteredDashboardRoutes.length;
+            const dashCompletedRoutes = filteredDashboardRoutes.filter(r => r.estado === 'Finalizada').length;
+            const dashInProgressRoutes = filteredDashboardRoutes.filter(r => r.estado === 'En Proceso').length;
+            const dashEarlyTermRoutes = filteredDashboardRoutes.filter(r => r.estado === 'Término Anticipado').length;
+
+            let dashTotalPoints = 0;
+            let dashCompletedPoints = 0;
+            filteredDashboardRoutes.forEach(r => {
+              const pts = r.puntos_detalle || [];
+              dashTotalPoints += pts.length;
+              dashCompletedPoints += pts.filter(p => p.completado).length;
+            });
+            const dashIncompletePoints = Math.max(0, dashTotalPoints - dashCompletedPoints);
+            const dashComplianceRate = dashTotalPoints > 0 ? Math.round((dashCompletedPoints / dashTotalPoints) * 100) : (dashTotalRoutes > 0 ? 100 : 0);
+
+            // 3. Faena Breakdown
+            const activeFaenasList = currentAdmin?.tipo_usuario === "cliente" && currentAdmin.faena_asignada
+              ? faenas.filter(f => f.nombre === currentAdmin.faena_asignada)
+              : (dashboardFaenaFilter ? faenas.filter(f => f.nombre === dashboardFaenaFilter || f.id === dashboardFaenaFilter) : faenas);
+
+            const faenaStats = activeFaenasList.map(faena => {
+              const fRoutes = filteredDashboardRoutes.filter(r => r.faena_id === faena.id || r.faena_name === faena.nombre);
+              let fTotalPts = 0;
+              let fCompletedPts = 0;
+              fRoutes.forEach(r => {
+                const pts = r.puntos_detalle || [];
+                fTotalPts += pts.length;
+                fCompletedPts += pts.filter(p => p.completado).length;
+              });
+              const fIncompletePts = Math.max(0, fTotalPts - fCompletedPts);
+              const fCompliance = fTotalPts > 0 ? Math.round((fCompletedPts / fTotalPts) * 100) : (fRoutes.length > 0 ? 100 : 0);
+              return {
+                faena,
+                routesCount: fRoutes.length,
+                totalPoints: fTotalPts,
+                completedPoints: fCompletedPts,
+                incompletePoints: fIncompletePts,
+                compliance: fCompliance,
+                routes: fRoutes
+              };
+            });
+
+            const applyDatePreset = (preset: "today" | "7days" | "month" | "all") => {
+              setDashboardDatePreset(preset);
+              const today = new Date();
+              const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+              if (preset === "today") {
+                setDashboardDateFrom(todayStr);
+                setDashboardDateTo(todayStr);
+              } else if (preset === "7days") {
+                const past7 = new Date();
+                past7.setDate(past7.getDate() - 7);
+                const past7Str = `${past7.getFullYear()}-${String(past7.getMonth() + 1).padStart(2, "0")}-${String(past7.getDate()).padStart(2, "0")}`;
+                setDashboardDateFrom(past7Str);
+                setDashboardDateTo(todayStr);
+              } else if (preset === "month") {
+                const firstDayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
+                setDashboardDateFrom(firstDayStr);
+                setDashboardDateTo(todayStr);
+              } else if (preset === "all") {
+                setDashboardDateFrom("");
+                setDashboardDateTo("");
+              }
+            };
+
+            const clearFilters = () => {
+              setDashboardDateFrom("");
+              setDashboardDateTo("");
+              setDashboardDatePreset("all");
+              if (currentAdmin?.tipo_usuario !== "cliente") {
+                setDashboardFaenaFilter("");
+              }
+            };
+
+            const isFiltered = !!dashboardDateFrom || !!dashboardDateTo || (!!dashboardFaenaFilter && currentAdmin?.tipo_usuario !== "cliente") || dashboardDatePreset !== "all";
+
+            return (
+              <div className="space-y-6 text-slate-700 font-sans">
+                {/* Dashboard Header with Welcome & Filter Bar */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h2 className="text-xl font-bold text-slate-800">
+                          {currentAdmin?.tipo_usuario === "cliente" && currentAdmin.faena_asignada
+                            ? `Panel de Control — Faena ${currentAdmin.faena_asignada}`
+                            : "Dashboard Operativo y Control de Cumplimiento"}
+                        </h2>
+                        {currentAdmin?.tipo_usuario === "cliente" && (
+                          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider border border-emerald-200">
+                            Vista Cliente
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs sm:text-sm text-slate-500">
+                        {currentAdmin?.tipo_usuario === "cliente" && currentAdmin.faena_asignada
+                          ? `Monitoreo en tiempo real de rutas, puntos completados y evidencias de la faena ${currentAdmin.faena_asignada}.`
+                          : "Monitoreo integral de cumplimiento por faena, control de puntos completados y reportes de ruta."}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={fetchRouteRecords}
+                        disabled={loadingRouteRecords}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                        title="Actualizar datos desde la base de datos"
+                      >
+                        <RefreshCw className={`h-4 w-4 ${loadingRouteRecords ? 'animate-spin text-blue-600' : ''}`} />
+                        Actualizar
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Interactive Filters Panel */}
+                  <div className="pt-4 border-t border-slate-100 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <Filter className="h-3.5 w-3.5 text-blue-500" />
+                        Filtros de Período y Faena
                       </span>
-                    )}
-                  </div>
-                  <p className="text-sm text-slate-500">
-                    {currentAdmin?.tipo_usuario === "cliente" && currentAdmin.faena_asignada
-                      ? `Monitoreo exclusivo de cumplimiento e indicadores de la faena ${currentAdmin.faena_asignada}.`
-                      : "Estadísticas y tasa de cumplimiento en tiempo real para control de ruta."}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-4 py-2 rounded-lg text-sm font-semibold text-slate-600">
-                  <Calendar className="h-4 w-4 text-slate-400" />
-                  <span>Hoy: {new Date().toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-                </div>
-              </div>
+                      {isFiltered && (
+                        <button
+                          onClick={clearFilters}
+                          className="text-xs font-semibold text-red-600 hover:text-red-700 flex items-center gap-1 hover:underline cursor-pointer"
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                          Limpiar filtros
+                        </button>
+                      )}
+                    </div>
 
-              {/* KPI Stat Cards Group */}
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-                {/* Tasa Cumplimiento General */}
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between">
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cumplimiento Promedio</h3>
-                    <p className="text-3xl font-extrabold text-slate-800 mt-2">94.8%</p>
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 mt-2 bg-emerald-50 px-2 py-0.5 rounded">
-                      <TrendingUp className="h-3 w-3" /> +1.2% esta semana
-                    </span>
-                  </div>
-                  <div className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                    <Activity className="h-6 w-6" />
-                  </div>
-                </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                      {/* Date Presets Quick Pills */}
+                      <div className="lg:col-span-2 flex flex-wrap items-center gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+                        <button
+                          onClick={() => applyDatePreset("today")}
+                          className={`flex-1 min-w-[70px] py-1.5 px-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                            dashboardDatePreset === "today"
+                              ? "bg-blue-600 text-white shadow-sm"
+                              : "text-slate-600 hover:bg-slate-200"
+                          }`}
+                        >
+                          Hoy
+                        </button>
+                        <button
+                          onClick={() => applyDatePreset("7days")}
+                          className={`flex-1 min-w-[90px] py-1.5 px-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                            dashboardDatePreset === "7days"
+                              ? "bg-blue-600 text-white shadow-sm"
+                              : "text-slate-600 hover:bg-slate-200"
+                          }`}
+                        >
+                          Últimos 7 días
+                        </button>
+                        <button
+                          onClick={() => applyDatePreset("month")}
+                          className={`flex-1 min-w-[80px] py-1.5 px-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                            dashboardDatePreset === "month"
+                              ? "bg-blue-600 text-white shadow-sm"
+                              : "text-slate-600 hover:bg-slate-200"
+                          }`}
+                        >
+                          Este Mes
+                        </button>
+                        <button
+                          onClick={() => applyDatePreset("all")}
+                          className={`flex-1 min-w-[80px] py-1.5 px-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                            dashboardDatePreset === "all"
+                              ? "bg-blue-600 text-white shadow-sm"
+                              : "text-slate-600 hover:bg-slate-200"
+                          }`}
+                        >
+                          Histórico
+                        </button>
+                      </div>
 
-                {/* Rutas Completadas */}
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between">
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Rutas Activas Hoy</h3>
-                    <p className="text-3xl font-extrabold text-slate-800 mt-2">18 / 20</p>
-                    <span className="text-xs text-slate-500 mt-2 block font-medium">90% Completadas</span>
-                  </div>
-                  <div className="h-12 w-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                    <CheckCircle className="h-6 w-6" />
-                  </div>
-                </div>
-
-                {/* Términos Anticipados */}
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between">
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Términos Anticipados</h3>
-                    <p className="text-3xl font-extrabold text-red-600 mt-2">
-                      {notifications.filter(n => n.tipo === 'termino_anticipado' && (!currentAdmin?.faena_asignada || n.faena_name === currentAdmin.faena_asignada)).length}
-                    </p>
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 mt-2 bg-red-50 px-2 py-0.5 rounded">
-                      <AlertTriangle className="h-3 w-3" /> Alertas del día
-                    </span>
-                  </div>
-                  <div className="h-12 w-12 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
-                    <XCircle className="h-6 w-6" />
-                  </div>
-                </div>
-
-                {/* Total Operadores y Vehiculos */}
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between">
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Recursos Asociados</h3>
-                    <p className="text-2xl font-extrabold text-slate-800 mt-2">{users.length} Op / {vehicles.length} Veh</p>
-                    <span className="text-xs text-slate-500 mt-3 block font-medium">Equipos registrados</span>
-                  </div>
-                  <div className="h-12 w-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-                    <Truck className="h-6 w-6" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Faena Progress and Performance Section */}
-              <div className="grid gap-6 lg:grid-cols-3">
-                {/* Performance by Faena Card */}
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
-                  <h3 className="font-bold text-slate-800 text-base mb-4">
-                    {currentAdmin?.tipo_usuario === "cliente" && currentAdmin.faena_asignada
-                      ? `Desempeño en ${currentAdmin.faena_asignada}`
-                      : "Estado y Cumplimiento por Faena"}
-                  </h3>
-                  <div className="space-y-5">
-                    {faenas.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic py-4">No hay faenas registradas.</p>
-                    ) : (
-                      faenas
-                        .filter(f => !currentAdmin?.faena_asignada || f.nombre === currentAdmin.faena_asignada)
-                        .map((faena, index) => {
-                          const completion = [95.0, 92.5, 88.0, 96.5][index % 4];
-                          const pointsCount = faenaPointsMap[faena.id]?.length || 6;
-                          return (
-                            <div key={faena.id || faena.nombre}>
-                              <div className="flex justify-between text-sm font-semibold text-slate-700 mb-1">
-                                <span>{faena.nombre}</span>
-                                <span className="text-emerald-600">{completion}% Cumplimiento</span>
-                              </div>
-                              <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                                <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${completion}%` }}></div>
-                              </div>
-                              <div className="flex justify-between text-xs text-slate-400 mt-1">
-                                <span>{pointsCount} Puntos de control</span>
-                                <span>Operación activa</span>
-                              </div>
-                            </div>
-                          );
-                        })
-                    )}
-                  </div>
-                </div>
-
-                {/* Operations History Table */}
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                  <h3 className="font-bold text-slate-800 text-base mb-4">Rutas por Fecha (Últimos 5 Días)</h3>
-                  <div className="space-y-3">
-                    {[
-                      { date: '31 Ago', total: 20, compliance: '95%', term: 2 },
-                      { date: '30 Ago', total: 18, compliance: '98%', term: 0 },
-                      { date: '29 Ago', total: 22, compliance: '94%', term: 1 },
-                      { date: '28 Ago', total: 15, compliance: '97%', term: 0 },
-                      { date: '27 Ago', total: 19, compliance: '96%', term: 1 },
-                    ].map((history, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-100 text-xs">
-                        <div className="font-semibold text-slate-700">{history.date}</div>
-                        <div className="text-slate-500 font-medium">{history.total} Rutas</div>
-                        <div className="font-bold text-emerald-600">{history.compliance} Cump.</div>
-                        <div className={`font-bold px-1.5 py-0.5 rounded ${history.term > 0 ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-400'}`}>
-                          {history.term} T.A.
+                      {/* Date Range Inputs */}
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">Desde</label>
+                          <input
+                            type="date"
+                            value={dashboardDateFrom}
+                            onChange={(e) => {
+                              setDashboardDateFrom(e.target.value);
+                              setDashboardDatePreset("custom");
+                            }}
+                            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 font-semibold focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">Hasta</label>
+                          <input
+                            type="date"
+                            value={dashboardDateTo}
+                            onChange={(e) => {
+                              setDashboardDateTo(e.target.value);
+                              setDashboardDatePreset("custom");
+                            }}
+                            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 font-semibold focus:outline-none focus:border-blue-500"
+                          />
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
 
-              {/* Recent Early Terminations Section */}
-              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
-                    <AlertTriangle className="h-5 w-5 text-red-500" />
-                    Últimas Alertas de Término Anticipado
-                  </h3>
-                  {currentAdmin?.tipo_usuario !== "cliente" && (
-                    <button 
-                      onClick={() => setActiveTab("notifications")}
-                      className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
-                    >
-                      Ver todas las alertas
-                    </button>
-                  )}
-                </div>
-                {notifications.filter(n => n.tipo === 'termino_anticipado' && (!currentAdmin?.faena_asignada || n.faena_name === currentAdmin.faena_asignada)).length === 0 ? (
-                  <div className="text-center py-6 text-slate-400 text-sm font-medium">
-                    No se han registrado alertas de término anticipado hoy.
+                      {/* Faena Dropdown Filter */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-0.5">Filtrar por Faena</label>
+                        {currentAdmin?.tipo_usuario === "cliente" && currentAdmin.faena_asignada ? (
+                          <div className="bg-slate-100 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 truncate">
+                            {currentAdmin.faena_asignada} (Asignada)
+                          </div>
+                        ) : (
+                          <select
+                            value={dashboardFaenaFilter}
+                            onChange={(e) => setDashboardFaenaFilter(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 font-semibold focus:outline-none focus:border-blue-500 cursor-pointer"
+                          >
+                            <option value="">Todas las Faenas ({faenas.length})</option>
+                            {faenas.map((f) => (
+                              <option key={f.id} value={f.nombre}>
+                                {f.nombre}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                ) : (
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {notifications
-                      .filter(n => n.tipo === 'termino_anticipado' && (!currentAdmin?.faena_asignada || n.faena_name === currentAdmin.faena_asignada))
-                      .slice(0, 4)
-                      .map((alert) => {
-                        const hasDetails = alert.details && (alert.details.pendingPoints || alert.details.completedPoints);
-                        return (
-                          <div key={alert.id} className="p-4 rounded-xl border border-red-100 bg-red-50/30 flex flex-col justify-between gap-3 text-xs">
-                            <div className="flex items-center justify-between">
-                              <div className="font-bold text-slate-800 text-sm truncate max-w-[200px]">
-                                {alert.driver_name || 'Operador'}
-                              </div>
-                              <div className="text-slate-400 text-[10px] font-semibold flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {alert.created_at ? new Date(alert.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : ''}
-                              </div>
-                            </div>
-                            <div className="text-slate-600 font-medium leading-relaxed">
-                              Reportó término anticipado en faena <strong className="text-slate-800">{alert.faena_name || 'Desconocida'}</strong>.
-                              {alert.motivo && <div className="mt-1 text-[11px] text-slate-500 italic">Motivo: "{alert.motivo}"</div>}
-                            </div>
-                            <div className="flex items-center gap-4 text-[10px] text-slate-500 border-t border-red-100/50 pt-2 font-medium">
-                              <div>Vehículo: <strong className="text-slate-700">{alert.vehicle_code || 'N/A'}</strong></div>
-                              {hasDetails && (
-                                <div className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-                                  {alert.details.completedPoints.length} Puntos listos
-                                </div>
+                </div>
+
+                {/* KPI Stat Cards Group (Dynamic & Filtered) */}
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  {/* Tasa Cumplimiento General */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between">
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cumplimiento Global</h3>
+                      <p className="text-3xl font-black text-slate-800 mt-2">
+                        {dashComplianceRate}%
+                      </p>
+                      <span className={`inline-flex items-center gap-1 text-xs font-bold mt-2 px-2 py-0.5 rounded-lg ${
+                        dashComplianceRate >= 90 ? 'bg-emerald-50 text-emerald-700' : dashComplianceRate >= 70 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'
+                      }`}>
+                        <TrendingUp className="h-3 w-3" />
+                        {dashComplianceRate >= 90 ? 'Excelente rendimiento' : dashComplianceRate >= 70 ? 'Rendimiento aceptable' : 'Bajo cumplimiento'}
+                      </span>
+                    </div>
+                    <div className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                      <Activity className="h-6 w-6" />
+                    </div>
+                  </div>
+
+                  {/* Puntos Completados vs Incompletos */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between">
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Puntos de Control</h3>
+                      <p className="text-2xl font-black text-slate-800 mt-2">
+                        <span className="text-emerald-600">{dashCompletedPoints}</span> / {dashTotalPoints}
+                      </p>
+                      <div className="flex items-center gap-2 mt-2 text-xs font-bold">
+                        <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                          {dashCompletedPoints} listos
+                        </span>
+                        {dashIncompletePoints > 0 && (
+                          <span className="text-red-700 bg-red-50 px-1.5 py-0.5 rounded">
+                            {dashIncompletePoints} pendientes
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="h-12 w-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                      <CheckCircle2 className="h-6 w-6" />
+                    </div>
+                  </div>
+
+                  {/* Rutas en el período */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between">
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Rutas en Período</h3>
+                      <p className="text-3xl font-black text-slate-800 mt-2">{dashTotalRoutes}</p>
+                      <div className="flex items-center gap-2 mt-2 text-xs font-semibold text-slate-500">
+                        <span className="text-emerald-600 font-bold">{dashCompletedRoutes} Fin.</span>
+                        <span>•</span>
+                        <span className="text-blue-600 font-bold">{dashInProgressRoutes} En curso</span>
+                      </div>
+                    </div>
+                    <div className="h-12 w-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
+                      <Truck className="h-6 w-6" />
+                    </div>
+                  </div>
+
+                  {/* Términos Anticipados */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between">
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Términos Anticipados</h3>
+                      <p className="text-3xl font-black text-red-600 mt-2">{dashEarlyTermRoutes}</p>
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-red-600 mt-2 bg-red-50 px-2 py-0.5 rounded-lg">
+                        <AlertTriangle className="h-3 w-3" />
+                        {dashEarlyTermRoutes === 0 ? 'Sin incidencias' : 'Rutas interrumpidas'}
+                      </span>
+                    </div>
+                    <div className="h-12 w-12 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                      <XCircle className="h-6 w-6" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Desglose Detallado por Faena: Puntos Completados vs Incompletos */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                    <div>
+                      <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
+                        <MapPin className="h-5 w-5 text-blue-600" />
+                        Desempeño y Control de Puntos por Faena
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Balance detallado de puntos programados, completados y pendientes por faena en el período seleccionado.
+                      </p>
+                    </div>
+                    <span className="text-xs font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 self-start sm:self-auto">
+                      {faenaStats.length} {faenaStats.length === 1 ? 'Faena evaluada' : 'Faenas evaluadas'}
+                    </span>
+                  </div>
+
+                  {faenaStats.length === 0 ? (
+                    <div className="p-8 text-center text-slate-400 text-xs">
+                      No hay faenas registradas con los criterios seleccionados.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {faenaStats.map(({ faena, routesCount, totalPoints, completedPoints, incompletePoints, compliance }) => (
+                        <div
+                          key={faena.id}
+                          className="bg-slate-50/60 rounded-xl border border-slate-200 p-4 space-y-3 hover:border-blue-300 transition-all shadow-xs"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <h4 className="font-bold text-slate-800 text-sm truncate" title={faena.nombre}>
+                              {faena.nombre}
+                            </h4>
+                            <span
+                              className={`text-xs font-black px-2 py-0.5 rounded-lg ${
+                                compliance >= 90
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : compliance >= 70
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-red-100 text-red-800'
+                              }`}
+                            >
+                              {compliance}%
+                            </span>
+                          </div>
+
+                          {/* Progress Bar */}
+                          <div className="space-y-1">
+                            <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden flex">
+                              <div
+                                className="bg-emerald-500 h-full transition-all duration-500"
+                                style={{ width: `${compliance}%` }}
+                              ></div>
+                              {incompletePoints > 0 && (
+                                <div
+                                  className="bg-red-400 h-full transition-all duration-500"
+                                  style={{ width: `${100 - compliance}%` }}
+                                ></div>
                               )}
-                              {hasDetails && (
-                                <div className="text-red-700 bg-red-50 px-1.5 py-0.5 rounded">
-                                  {alert.details.pendingPoints.length} Pendientes
-                                </div>
-                              )}
+                            </div>
+                            <div className="flex justify-between text-[11px] text-slate-500 font-medium">
+                              <span>Progreso de puntos</span>
+                              <span>{completedPoints} de {totalPoints} listos</span>
                             </div>
                           </div>
-                        );
-                      })}
+
+                          {/* Stat Grid */}
+                          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200/60 text-center">
+                            <div className="bg-white p-2 rounded-lg border border-slate-150">
+                              <div className="text-[10px] uppercase font-bold text-slate-400">Rutas</div>
+                              <div className="text-xs font-black text-slate-700 mt-0.5">{routesCount}</div>
+                            </div>
+                            <div className="bg-white p-2 rounded-lg border border-slate-150">
+                              <div className="text-[10px] uppercase font-bold text-emerald-600">Completados</div>
+                              <div className="text-xs font-black text-emerald-700 mt-0.5">{completedPoints}</div>
+                            </div>
+                            <div className="bg-white p-2 rounded-lg border border-slate-150">
+                              <div className="text-[10px] uppercase font-bold text-red-500">Pendientes</div>
+                              <div className="text-xs font-black text-red-600 mt-0.5">{incompletePoints}</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Historial de Rutas y Acceso Directo a Evidencias / Reportes */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                    <div>
+                      <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
+                        <FileText className="h-5 w-5 text-blue-600" />
+                        Rutas Ejecutadas y Acceso a Evidencias
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Selecciona cualquier jornada de ruta para abrir su reporte oficial con evidencias fotográficas, checklist y GPS.
+                      </p>
+                    </div>
+                    <span className="text-xs font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 self-start sm:self-auto">
+                      {filteredDashboardRoutes.length} {filteredDashboardRoutes.length === 1 ? 'Ruta encontrada' : 'Rutas encontradas'}
+                    </span>
                   </div>
-                )}
+
+                  {filteredDashboardRoutes.length === 0 ? (
+                    <div className="p-8 text-center text-slate-400 text-sm font-medium">
+                      No hay registros de ruta que coincidan con los filtros aplicados.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                          <tr>
+                            <th className="px-4 py-3">Fecha y Hora</th>
+                            <th className="px-4 py-3">Faena</th>
+                            <th className="px-4 py-3">Operador / Ayudante</th>
+                            <th className="px-4 py-3">Vehículo</th>
+                            <th className="px-4 py-3">Progreso de Puntos</th>
+                            <th className="px-4 py-3">Estado</th>
+                            <th className="px-4 py-3 text-right">Reporte / Evidencia</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredDashboardRoutes.slice(0, 15).map((route) => {
+                            const pts = route.puntos_detalle || [];
+                            const completedCount = pts.filter(p => p.completado).length;
+                            const totalCount = pts.length;
+                            const pct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+                            return (
+                              <tr key={route.id} className="hover:bg-slate-50/80 transition-colors">
+                                <td className="px-4 py-3 font-semibold text-slate-700">
+                                  <div>{formatDateString(route.fecha_inicio)}</div>
+                                  <div className="text-[10px] text-slate-400 font-mono">
+                                    {route.hora_inicio} {route.hora_fin && route.hora_fin !== '-' ? `→ ${route.hora_fin}` : ''}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 font-bold text-slate-800">
+                                  {route.faena_name}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="font-semibold text-slate-700">{route.driver_name || 'Operador'}</div>
+                                  {route.ayudante_nombre && (
+                                    <div className="text-[10px] text-indigo-600 font-medium">
+                                      Ayudante: {route.ayudante_nombre}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 font-mono font-bold text-slate-600">
+                                  {route.vehicle_code}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-16 bg-slate-100 h-2 rounded-full overflow-hidden">
+                                      <div
+                                        className="bg-emerald-500 h-full rounded-full"
+                                        style={{ width: `${pct}%` }}
+                                      ></div>
+                                    </div>
+                                    <span className="font-bold text-slate-700 font-mono">
+                                      {completedCount}/{totalCount} ({pct}%)
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span
+                                    className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                                      route.estado === 'Finalizada'
+                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                        : route.estado === 'Término Anticipado'
+                                        ? 'bg-red-50 text-red-700 border border-red-200'
+                                        : 'bg-blue-50 text-blue-700 border border-blue-200'
+                                    }`}
+                                  >
+                                    {route.estado || 'En Proceso'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    onClick={() => setSelectedRouteForEvidenceModal(route)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-colors cursor-pointer border border-blue-200"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" />
+                                    Ver Evidencias
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {activeTab === "route_records" && (
             <div className="space-y-6 text-slate-700 font-sans">
@@ -5798,65 +6167,398 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* VEHICLE QR MODAL */}
-      {isQRModalOpen && selectedVehicleForQR && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl border border-slate-200 overflow-hidden font-sans">
-            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
-              <h3 className="font-bold text-base flex items-center gap-2">
-                <QrCode className="h-5 w-5 text-blue-500" />
-                Código QR: {selectedVehicleForQR.codigo}
-              </h3>
-              <button
-                onClick={() => setIsQRModalOpen(false)}
-                className="text-slate-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-            
-            <div className="p-6 flex flex-col items-center text-center space-y-4">
-              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-150 shadow-inner flex items-center justify-center">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${selectedVehicleForQR.codigo}`}
-                  alt={`Código QR para el vehículo ${selectedVehicleForQR.codigo}`}
-                  className="h-44 w-44 select-none"
-                />
-              </div>
+      {/* VEHICLE QR MODAL (WITH FISCALIZATION URL) */}
+      {isQRModalOpen && selectedVehicleForQR && (() => {
+        const publicInspectionUrl = typeof window !== 'undefined'
+          ? `${window.location.origin}/vehiculo/${selectedVehicleForQR.codigo}`
+          : `https://controlderuta.cl/vehiculo/${selectedVehicleForQR.codigo}`;
 
-              <div className="space-y-1">
-                <div className="text-lg font-bold text-slate-800">{selectedVehicleForQR.codigo}</div>
-                <div className="text-xs text-slate-500 font-medium">Patente: {selectedVehicleForQR.patente}</div>
-                <div className="text-xs text-slate-400 font-semibold uppercase">{selectedVehicleForQR.tipo_vehiculo}</div>
-              </div>
-
-              <p className="text-[11px] text-slate-400 font-medium leading-relaxed">
-                Este código QR puede ser escaneado por los choferes desde la APK de ScanQR para inicializar la ruta diaria.
-              </p>
-
-              <div className="flex gap-3 w-full pt-4 border-t border-slate-100">
-                <a
-                  href={`https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${selectedVehicleForQR.codigo}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 rounded-lg transition-colors"
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden font-sans">
+              <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+                <h3 className="font-bold text-base flex items-center gap-2">
+                  <QrCode className="h-5 w-5 text-blue-400" />
+                  QR de Fiscalización: {selectedVehicleForQR.codigo}
+                </h3>
+                <button
+                  onClick={() => setIsQRModalOpen(false)}
+                  className="text-slate-400 hover:text-white cursor-pointer"
                 >
-                  <Download className="h-4 w-4" />
-                  Descargar
-                </a>
+                  ✕
+                </button>
+              </div>
+              
+              <div className="p-6 flex flex-col items-center text-center space-y-4">
+                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-inner flex items-center justify-center">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(publicInspectionUrl)}`}
+                    alt={`Código QR para el vehículo ${selectedVehicleForQR.codigo}`}
+                    className="h-48 w-48 select-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="text-xl font-extrabold text-slate-800 font-mono">{selectedVehicleForQR.codigo}</div>
+                  <div className="text-xs text-slate-500 font-medium">Patente: <strong className="text-slate-700 font-mono">{selectedVehicleForQR.patente}</strong></div>
+                  <div className="text-xs text-slate-400 font-semibold uppercase">{selectedVehicleForQR.marca} {selectedVehicleForQR.modelo} • {selectedVehicleForQR.tipo_vehiculo}</div>
+                </div>
+
+                {/* Direct Link & Copy */}
+                <div className="w-full bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex items-center justify-between gap-2 text-left">
+                  <div className="text-[11px] text-slate-600 font-mono truncate flex-1">
+                    {publicInspectionUrl}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(publicInspectionUrl);
+                      setCopiedVehicleLink(true);
+                      setTimeout(() => setCopiedVehicleLink(false), 2000);
+                    }}
+                    className="shrink-0 p-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 text-xs font-bold transition-colors cursor-pointer"
+                    title="Copiar enlace directo"
+                  >
+                    {copiedVehicleLink ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
+                  Escaneable por la <strong>APK de ScanQR</strong> para iniciar ruta, o con la <strong>cámara de cualquier celular</strong> por fiscalizadores para verificar la documentación del vehículo al día.
+                </p>
+
+                <div className="flex gap-2 w-full pt-4 border-t border-slate-100">
+                  <a
+                    href={publicInspectionUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 inline-flex items-center justify-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2.5 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Ver Ficha
+                  </a>
+                  <a
+                    href={`https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(publicInspectionUrl)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Descargar
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold py-2.5 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Printer className="h-3.5 w-3.5" />
+                    Imprimir
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* FAENA START / END QR MODAL */}
+      {isFaenaQRModalOpen && selectedFaenaForQR && (() => {
+        const qrCodeValue = faenaQRType === "inicio"
+          ? `FAENA-${selectedFaenaForQR.id}-INICIO`
+          : `FAENA-${selectedFaenaForQR.id}-FIN`;
+
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 overflow-hidden font-sans">
+              <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+                <h3 className="font-bold text-base flex items-center gap-2">
+                  <QrCode className="h-5 w-5 text-blue-400" />
+                  QR de Faena: {selectedFaenaForQR.nombre}
+                </h3>
+                <button
+                  onClick={() => setIsFaenaQRModalOpen(false)}
+                  className="text-slate-400 hover:text-white cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-6 flex flex-col items-center text-center space-y-4">
+                {/* Switch Between Inicio (Entrada) and Fin (Salida) */}
+                <div className="w-full flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setFaenaQRType("inicio")}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      faenaQRType === "inicio"
+                        ? "bg-white text-emerald-700 shadow-sm border border-slate-200"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    QR Inicio (Entrada)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFaenaQRType("fin")}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      faenaQRType === "fin"
+                        ? "bg-white text-indigo-700 shadow-sm border border-slate-200"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    QR Final (Salida)
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-inner flex items-center justify-center">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrCodeValue)}`}
+                    alt={`Código QR para la faena ${selectedFaenaForQR.nombre}`}
+                    className="h-48 w-48 select-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="text-sm font-bold text-slate-800">{selectedFaenaForQR.nombre}</div>
+                  <div className="text-xs font-mono font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-md inline-block">
+                    {qrCodeValue}
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-500 font-medium leading-relaxed">
+                  {faenaQRType === "inicio"
+                    ? "Ubicado en el punto de acceso / garita de la faena. El operador lo escanea para validar su ingreso oficial."
+                    : "Ubicado en la garita de salida de la faena. El operador lo escanea para registrar el cierre formal de la ruta."}
+                </p>
+
+                <div className="flex gap-3 w-full pt-4 border-t border-slate-100">
+                  <a
+                    href={`https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(qrCodeValue)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Download className="h-4 w-4" />
+                    Descargar QR
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold py-2.5 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Printer className="h-4 w-4" />
+                    Imprimir
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ROUTE EVIDENCE & COMPLETE REPORT MODAL */}
+      {selectedRouteForEvidenceModal && (() => {
+        const route = selectedRouteForEvidenceModal;
+        const pts = route.puntos_detalle || [];
+        const completedPts = pts.filter(p => p.completado);
+        const pendingPts = pts.filter(p => !p.completado);
+        const totalPts = pts.length;
+        const pct = totalPts > 0 ? Math.round((completedPts.length / totalPts) * 100) : 0;
+        const hasStartGPS = route.latitud_inicio && route.longitud_inicio && route.latitud_inicio !== 0 && route.longitud_inicio !== 0;
+
+        return (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl border border-slate-200 overflow-hidden font-sans my-8">
+              {/* Header */}
+              <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-blue-400" />
+                  <div>
+                    <h3 className="font-bold text-base">Reporte de Jornada de Ruta</h3>
+                    <div className="text-xs text-slate-400 font-mono">ID Ruta: {route.id.substring(0, 8)}... • Faena: {route.faena_name}</div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedRouteForEvidenceModal(null)}
+                  className="text-slate-400 hover:text-white cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+                {/* Route Technical Sheet */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+                  <div>
+                    <span className="text-slate-400 font-medium block">Fecha</span>
+                    <strong className="text-slate-800">{formatDateString(route.fecha_inicio)}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-medium block">Horario</span>
+                    <strong className="text-slate-800">{route.hora_inicio} {route.hora_fin && route.hora_fin !== '-' ? `→ ${route.hora_fin}` : '(En curso)'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-medium block">Operador (Chofer)</span>
+                    <strong className="text-slate-800">{route.driver_name || 'N/A'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-medium block">Ayudante</span>
+                    <strong className="text-slate-800">{route.ayudante_nombre || 'Sin ayudante'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-medium block">Vehículo</span>
+                    <strong className="text-slate-800 font-mono">{route.vehicle_code}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-medium block">Faena</span>
+                    <strong className="text-slate-800">{route.faena_name}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-medium block">Puntos</span>
+                    <strong className="text-emerald-700 font-bold">{completedPts.length} / {totalPts} ({pct}%)</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-medium block">Estado Oficial</span>
+                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                      route.estado === 'Finalizada'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : route.estado === 'Término Anticipado'
+                        ? 'bg-red-100 text-red-800'
+                        : 'bg-blue-100 text-blue-800'
+                    }`}>
+                      {route.estado || 'En Proceso'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* GPS Start Location with Map */}
+                <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <MapPin className="h-4 w-4 text-blue-600" />
+                      Ubicación GPS de Inicio de Ruta
+                    </h4>
+                    {hasStartGPS && (
+                      <span className="text-xs font-mono font-semibold text-slate-500">
+                        Lat: {route.latitud_inicio} • Lng: {route.longitud_inicio}
+                      </span>
+                    )}
+                  </div>
+
+                  {hasStartGPS ? (
+                    <div className="h-44 w-full rounded-xl overflow-hidden border border-slate-200">
+                      <LocationViewMap
+                        latitude={route.latitud_inicio!}
+                        longitude={route.longitud_inicio!}
+                        pointCodigo={`Inicio: ${route.vehicle_code} (${route.faena_name})`}
+                      />
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-400">
+                      No se registraron coordenadas GPS al iniciar esta ruta.
+                    </div>
+                  )}
+                </div>
+
+                {/* Point by Point Checklist / Progress */}
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+                  <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                      Detalle de Puntos de Control ({completedPts.length} de {totalPts} completados)
+                    </h4>
+                    <span className="text-xs font-bold text-slate-600">
+                      Tasa: {pct}%
+                    </span>
+                  </div>
+
+                  {pts.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-slate-400">
+                      No se encontraron puntos de control vinculados a este registro.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
+                      {pts.map((pt, idx) => (
+                        <div key={idx} className="p-3 sm:px-4 flex items-center justify-between gap-3 text-xs hover:bg-slate-50">
+                          <div className="flex items-center gap-3">
+                            <div className={`h-6 w-6 rounded-full flex items-center justify-center font-bold text-[10px] ${
+                              pt.completado ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'
+                            }`}>
+                              {idx + 1}
+                            </div>
+                            <div>
+                              <div className="font-bold text-slate-800">{pt.codigo || 'Sin código'}</div>
+                              {pt.latitude && pt.longitude && (
+                                <div className="text-[10px] text-slate-400 font-mono">
+                                  GPS: {pt.latitude}, {pt.longitude}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            {pt.completado ? (
+                              <div>
+                                <span className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded text-[11px]">
+                                  <Check className="h-3 w-3" /> Completado
+                                </span>
+                                {pt.completed_at && (
+                                  <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                    {new Date(pt.completed_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-red-600 font-bold bg-red-50 px-2 py-0.5 rounded text-[11px]">
+                                <X className="h-3 w-3" /> Pendiente
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Early Termination Alert / Incident Notice */}
+                {route.estado === 'Término Anticipado' && (
+                  <div className="bg-red-50/50 rounded-xl border border-red-200 p-4 space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-red-700 flex items-center gap-1.5">
+                      <AlertTriangle className="h-4 w-4 text-red-600" />
+                      Registro de Término Anticipado
+                    </h4>
+                    <p className="text-xs text-slate-700 leading-relaxed">
+                      El operador interrumpió la ruta antes de completar la totalidad de los puntos programados.
+                    </p>
+                    <div className="text-xs font-semibold text-red-700">
+                      Quedaron pendientes {pendingPts.length} puntos de control sin auditar.
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setSelectedRouteForEvidenceModal(null)}
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-xs rounded-lg transition-colors cursor-pointer"
+                >
+                  Cerrar
+                </button>
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold py-2.5 rounded-lg transition-colors"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-sm transition-colors cursor-pointer"
                 >
                   <Printer className="h-4 w-4" />
-                  Imprimir
+                  Imprimir Reporte
                 </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* DELETE NOTIFICATION PASSWORD MODAL */}
       {isDeleteNotificationModalOpen && (
