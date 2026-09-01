@@ -4552,6 +4552,278 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* CREATE VEHICLE MODAL */}
+      {isVehicleCreateModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden font-sans">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-lg">Agregar Nuevo Vehículo</h3>
+              <button
+                onClick={() => setIsVehicleCreateModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateVehicle} className="p-6 space-y-4 text-slate-700">
+              {vehicleFormError && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{vehicleFormError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Código Interno *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.codigo}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, codigo: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none uppercase"
+                    placeholder="Ej: V-101"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Patente *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.patente}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, patente: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none uppercase"
+                    placeholder="Ej: ABCD-12"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Vehículo *</label>
+                <select
+                  value={vehicleFormData.tipo_vehiculo}
+                  onChange={(e) => setVehicleFormData({ ...vehicleFormData, tipo_vehiculo: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="Camioneta 4x4">Camioneta 4x4</option>
+                  <option value="Camión Aljibe">Camión Aljibe</option>
+                  <option value="Camión Tolva">Camión Tolva</option>
+                  <option value="Camión Pluma">Camión Pluma</option>
+                  <option value="Bus">Bus</option>
+                  <option value="Minibus">Minibus</option>
+                  <option value="Furgón">Furgón</option>
+                  <option value="Maquinaria Pesada">Maquinaria Pesada</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Marca *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.marca}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, marca: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Ej: Toyota"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Modelo *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.modelo}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, modelo: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Ej: Hilux 2.8"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Año *</label>
+                  <input
+                    type="number"
+                    required
+                    min="1990"
+                    max="2035"
+                    value={vehicleFormData.anio}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, anio: Number(e.target.value) })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Estado</label>
+                  <select
+                    value={vehicleFormData.habilitado ? "true" : "false"}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, habilitado: e.target.value === "true" })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="true">Activo</option>
+                    <option value="false">Inactivo</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsVehicleCreateModalOpen(false)}
+                  className="border border-slate-300 text-slate-600 rounded-lg px-4 py-2 hover:bg-slate-50 transition-colors text-sm font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingVehicleForm}
+                  className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors text-sm font-semibold disabled:bg-blue-400"
+                >
+                  {savingVehicleForm ? "Guardando..." : "Crear Vehículo"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT VEHICLE MODAL */}
+      {isVehicleEditModalOpen && selectedVehicle && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden font-sans">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-lg">Modificar Vehículo ({selectedVehicle.codigo})</h3>
+              <button
+                onClick={() => setIsVehicleEditModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleEditVehicle} className="p-6 space-y-4 text-slate-700">
+              {vehicleFormError && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{vehicleFormError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Código Interno *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.codigo}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, codigo: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none uppercase"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Patente *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.patente}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, patente: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none uppercase"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Vehículo *</label>
+                <select
+                  value={vehicleFormData.tipo_vehiculo}
+                  onChange={(e) => setVehicleFormData({ ...vehicleFormData, tipo_vehiculo: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="Camioneta 4x4">Camioneta 4x4</option>
+                  <option value="Camión Aljibe">Camión Aljibe</option>
+                  <option value="Camión Tolva">Camión Tolva</option>
+                  <option value="Camión Pluma">Camión Pluma</option>
+                  <option value="Bus">Bus</option>
+                  <option value="Minibus">Minibus</option>
+                  <option value="Furgón">Furgón</option>
+                  <option value="Maquinaria Pesada">Maquinaria Pesada</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Marca *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.marca}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, marca: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Modelo *</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehicleFormData.modelo}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, modelo: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Año *</label>
+                  <input
+                    type="number"
+                    required
+                    min="1990"
+                    max="2035"
+                    value={vehicleFormData.anio}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, anio: Number(e.target.value) })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Estado</label>
+                  <select
+                    value={vehicleFormData.habilitado ? "true" : "false"}
+                    onChange={(e) => setVehicleFormData({ ...vehicleFormData, habilitado: e.target.value === "true" })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="true">Activo</option>
+                    <option value="false">Inactivo</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsVehicleEditModalOpen(false)}
+                  className="border border-slate-300 text-slate-600 rounded-lg px-4 py-2 hover:bg-slate-50 transition-colors text-sm font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingVehicleForm}
+                  className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors text-sm font-semibold disabled:bg-blue-400"
+                >
+                  {savingVehicleForm ? "Guardando..." : "Guardar Cambios"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* CREATE FAENA MODAL */}
       {isFaenaCreateModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
