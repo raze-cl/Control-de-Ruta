@@ -66,6 +66,7 @@ interface AppUser {
   created_at?: string;
   email?: string;
   recibe_notificaciones?: boolean;
+  faena_asignada?: string;
 }
 
 interface Vehicle {
@@ -291,6 +292,7 @@ export default function HomePage() {
   const [isDocEditModalOpen, setIsDocEditModalOpen] = useState(false);
   const [selectedDocType, setSelectedDocType] = useState<"user_doc" | "user_pass" | "vehicle_doc">("user_doc");
   const [selectedDocName, setSelectedDocName] = useState("");
+  const [selectedPassType, setSelectedPassType] = useState<string>("Pase de Acceso");
   const [selectedDocTargetId, setSelectedDocTargetId] = useState(""); // user_id or vehicle_id
   const [editDocDate, setEditDocDate] = useState("");
   const [simulatedFileName, setSimulatedFileName] = useState("");
@@ -341,13 +343,14 @@ export default function HomePage() {
     nombre: "",
     rut: "",
     cargo: "",
-    tipo_usuario: "operador",
+    tipo_usuario: "chofer",
     username: "",
     password: "",
     documento_url: "",
     habilitado: true,
     email: "",
     recibe_notificaciones: false,
+    faena_asignada: "",
   });
   const [formError, setFormError] = useState("");
   const [savingForm, setSavingForm] = useState(false);
@@ -783,22 +786,31 @@ export default function HomePage() {
         .select("*")
         .eq("username", loginUsername.trim())
         .eq("password", loginPassword)
-        .eq("tipo_usuario", "admin")
-        .single();
+        .maybeSingle();
 
       if (error || !data) {
-        setLoginError("Credenciales incorrectas o no tienes permisos de administrador.");
+        setLoginError("Usuario o contraseña incorrectos.");
         setLoadingLogin(false);
         return;
       }
 
       if (!data.habilitado) {
-        setLoginError("Tu cuenta de administrador se encuentra deshabilitada.");
+        setLoginError("Tu cuenta se encuentra deshabilitada. Contacta al administrador.");
+        setLoadingLogin(false);
+        return;
+      }
+
+      // Check allowed roles for WebApp: only admin and cliente
+      if (data.tipo_usuario !== "admin" && data.tipo_usuario !== "cliente") {
+        setLoginError("Los usuarios con rol de Chofer o Ayudante no tienen acceso a la plataforma web.");
         setLoadingLogin(false);
         return;
       }
 
       setCurrentAdmin(data);
+      if (data.tipo_usuario === "cliente") {
+        setActiveTab("dashboard");
+      }
       setIsLoggedIn(true);
     } catch (err: any) {
       setLoginError("Error de conexión con el servidor. Verifica las credenciales.");
@@ -1046,13 +1058,14 @@ export default function HomePage() {
       nombre: "",
       rut: "",
       cargo: "",
-      tipo_usuario: "operador",
+      tipo_usuario: "chofer",
       username: "",
       password: "",
       documento_url: "",
       habilitado: true,
       email: "",
       recibe_notificaciones: false,
+      faena_asignada: "",
     });
     setFormError("");
     setIsCreateModalOpen(true);
@@ -1072,6 +1085,7 @@ export default function HomePage() {
       habilitado: user.habilitado,
       email: user.email || "",
       recibe_notificaciones: user.recibe_notificaciones || false,
+      faena_asignada: user.faena_asignada || "",
     });
     setFormError("");
     setIsEditModalOpen(true);
@@ -1162,11 +1176,13 @@ export default function HomePage() {
     type: "user_doc" | "user_pass" | "vehicle_doc",
     docName: string,
     targetId: string,
-    currentDate?: string
+    currentDate?: string,
+    passType: string = "Pase de Acceso"
   ) => {
     setSelectedDocType(type);
     setSelectedDocName(docName);
     setSelectedDocTargetId(targetId);
+    setSelectedPassType(passType);
     setEditDocDate(currentDate || new Date().toISOString().substring(0, 10));
     setSimulatedFileName("");
     setDocEditError("");
@@ -1180,6 +1196,11 @@ export default function HomePage() {
 
     if (!formData.nombre || !formData.rut || !formData.cargo || !formData.username || !formData.password) {
       setFormError("Por favor completa todos los campos obligatorios.");
+      return;
+    }
+
+    if (formData.tipo_usuario === "cliente" && !formData.faena_asignada) {
+      setFormError("Debes seleccionar una faena asignada para el usuario tipo Cliente.");
       return;
     }
 
@@ -1197,6 +1218,7 @@ export default function HomePage() {
           habilitado: formData.habilitado,
           email: formData.email.trim() || null,
           recibe_notificaciones: formData.recibe_notificaciones,
+          faena_asignada: formData.tipo_usuario === "cliente" ? formData.faena_asignada.trim() : null,
         },
       ]);
 
@@ -1230,6 +1252,11 @@ export default function HomePage() {
       return;
     }
 
+    if (formData.tipo_usuario === "cliente" && !formData.faena_asignada) {
+      setFormError("Debes seleccionar una faena asignada para el usuario tipo Cliente.");
+      return;
+    }
+
     setSavingForm(true);
     try {
       const { error } = await supabase
@@ -1245,6 +1272,7 @@ export default function HomePage() {
           habilitado: formData.habilitado,
           email: formData.email.trim() || null,
           recibe_notificaciones: formData.recibe_notificaciones,
+          faena_asignada: formData.tipo_usuario === "cliente" ? formData.faena_asignada.trim() : null,
         })
         .eq("id", selectedUser.id);
 
@@ -1562,9 +1590,10 @@ export default function HomePage() {
             {
               user_id: selectedDocTargetId,
               faena_name: selectedDocName,
+              tipo_documento: selectedPassType || "Pase de Acceso",
               fecha_vencimiento: editDocDate,
             },
-            { onConflict: "user_id,faena_name" }
+            { onConflict: "user_id,faena_name,tipo_documento" }
           );
 
         if (error) throw error;
@@ -1994,105 +2023,121 @@ export default function HomePage() {
 
         {/* Navigation Menu */}
         <nav className="flex-1 space-y-1 px-4 py-6">
-          <button
-            onClick={() => setActiveTab("users")}
-            className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
-              activeTab === "users"
-                ? "bg-blue-600 text-white shadow"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
-          >
-            <Users className="h-5 w-5 shrink-0" />
-            {isSidebarExpanded && <span>Usuarios APK</span>}
-          </button>
+          {currentAdmin?.tipo_usuario === "cliente" ? (
+            <button
+              onClick={() => setActiveTab("dashboard")}
+              className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+                activeTab === "dashboard"
+                  ? "bg-blue-600 text-white shadow"
+                  : "text-slate-400 hover:bg-slate-800 hover:text-white"
+              }`}
+            >
+              <LayoutDashboard className="h-5 w-5 shrink-0" />
+              {isSidebarExpanded && <span>Dashboard</span>}
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => setActiveTab("users")}
+                className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+                  activeTab === "users"
+                    ? "bg-blue-600 text-white shadow"
+                    : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                }`}
+              >
+                <Users className="h-5 w-5 shrink-0" />
+                {isSidebarExpanded && <span>Usuarios</span>}
+              </button>
 
-          <button
-            onClick={() => setActiveTab("vehicles")}
-            className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
-              activeTab === "vehicles"
-                ? "bg-blue-600 text-white shadow"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
-          >
-            <Truck className="h-5 w-5 shrink-0" />
-            {isSidebarExpanded && <span>Vehículos</span>}
-          </button>
+              <button
+                onClick={() => setActiveTab("vehicles")}
+                className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+                  activeTab === "vehicles"
+                    ? "bg-blue-600 text-white shadow"
+                    : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                }`}
+              >
+                <Truck className="h-5 w-5 shrink-0" />
+                {isSidebarExpanded && <span>Vehículos</span>}
+              </button>
 
-          <button
-            onClick={() => setActiveTab("faenas")}
-            className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
-              activeTab === "faenas"
-                ? "bg-blue-600 text-white shadow"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
-          >
-            <Map className="h-5 w-5 shrink-0" />
-            {isSidebarExpanded && <span>Faenas y Rutas</span>}
-          </button>
+              <button
+                onClick={() => setActiveTab("faenas")}
+                className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+                  activeTab === "faenas"
+                    ? "bg-blue-600 text-white shadow"
+                    : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                }`}
+              >
+                <Map className="h-5 w-5 shrink-0" />
+                {isSidebarExpanded && <span>Faenas y Rutas</span>}
+              </button>
 
-          <button
-            onClick={() => setActiveTab("checklists")}
-            className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
-              activeTab === "checklists"
-                ? "bg-blue-600 text-white shadow"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
-          >
-            <ClipboardList className="h-5 w-5 shrink-0" />
-            {isSidebarExpanded && <span>Gestión de Encuestas</span>}
-          </button>
+              <button
+                onClick={() => setActiveTab("checklists")}
+                className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+                  activeTab === "checklists"
+                    ? "bg-blue-600 text-white shadow"
+                    : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                }`}
+              >
+                <ClipboardList className="h-5 w-5 shrink-0" />
+                {isSidebarExpanded && <span>Gestión de Encuestas</span>}
+              </button>
 
-          <button
-            onClick={() => setActiveTab("notifications")}
-            className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
-              activeTab === "notifications"
-                ? "bg-blue-600 text-white shadow"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
-          >
-            <div className="relative">
-              <Bell className="h-5 w-5 shrink-0" />
-              {!isSidebarExpanded && unreadCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
-                  {unreadCount}
-                </span>
-              )}
-            </div>
-            {isSidebarExpanded && (
-              <div className="flex-1 flex items-center justify-between min-w-0">
-                <span className="truncate">Notificaciones</span>
-                {unreadCount > 0 && (
-                  <span className="bg-red-500 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full">
-                    {unreadCount}
-                  </span>
+              <button
+                onClick={() => setActiveTab("notifications")}
+                className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+                  activeTab === "notifications"
+                    ? "bg-blue-600 text-white shadow"
+                    : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                }`}
+              >
+                <div className="relative">
+                  <Bell className="h-5 w-5 shrink-0" />
+                  {!isSidebarExpanded && unreadCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+                      {unreadCount}
+                    </span>
+                  )}
+                </div>
+                {isSidebarExpanded && (
+                  <div className="flex-1 flex items-center justify-between min-w-0">
+                    <span className="truncate">Notificaciones</span>
+                    {unreadCount > 0 && (
+                      <span className="bg-red-500 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full">
+                        {unreadCount}
+                      </span>
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
-          </button>
+              </button>
 
-          <button
-            onClick={() => setActiveTab("dashboard")}
-            className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
-              activeTab === "dashboard"
-                ? "bg-blue-600 text-white shadow"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
-          >
-            <LayoutDashboard className="h-5 w-5 shrink-0" />
-            {isSidebarExpanded && <span>Dashboard</span>}
-          </button>
+              <button
+                onClick={() => setActiveTab("dashboard")}
+                className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+                  activeTab === "dashboard"
+                    ? "bg-blue-600 text-white shadow"
+                    : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                }`}
+              >
+                <LayoutDashboard className="h-5 w-5 shrink-0" />
+                {isSidebarExpanded && <span>Dashboard</span>}
+              </button>
 
-          <button
-            onClick={() => setActiveTab("route_records")}
-            className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
-              activeTab === "route_records"
-                ? "bg-blue-600 text-white shadow"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
-            }`}
-          >
-            <Clock className="h-5 w-5 shrink-0" />
-            {isSidebarExpanded && <span>Registros de Rutas</span>}
-          </button>
+              <button
+                onClick={() => setActiveTab("route_records")}
+                className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+                  activeTab === "route_records"
+                    ? "bg-blue-600 text-white shadow"
+                    : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                }`}
+              >
+                <Clock className="h-5 w-5 shrink-0" />
+                {isSidebarExpanded && <span>Registros de Rutas</span>}
+              </button>
+            </>
+          )}
         </nav>
 
         {/* Sidebar Footer User Info */}
@@ -2106,7 +2151,9 @@ export default function HomePage() {
                 <p className="text-sm font-bold truncate text-slate-200">
                   {currentAdmin?.nombre}
                 </p>
-                <p className="text-xs text-slate-500 truncate">Administrador</p>
+                <p className="text-xs text-slate-500 truncate capitalize">
+                  {currentAdmin?.tipo_usuario === "cliente" ? `Cliente (${currentAdmin?.faena_asignada || "General"})` : "Administrador"}
+                </p>
               </div>
             )}
             {isSidebarExpanded && (
@@ -2205,8 +2252,8 @@ export default function HomePage() {
                           <th className="px-6 py-4 w-10"></th>
                           <th className="px-6 py-4">Nombre / RUT</th>
                           <th className="px-6 py-4">Cargo</th>
-                          <th className="px-6 py-4">Usuario APK</th>
-                          <th className="px-6 py-4">Tipo</th>
+                          <th className="px-6 py-4">Usuario</th>
+                          <th className="px-6 py-4">Tipo / Rol</th>
                           <th className="px-6 py-4 text-center">Contrato</th>
                           <th className="px-6 py-4 text-center">Estado</th>
                           <th className="px-6 py-4 text-right">Acciones</th>
@@ -2246,13 +2293,23 @@ export default function HomePage() {
                                       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                                         user.tipo_usuario === "admin"
                                           ? "bg-purple-100 text-purple-700"
+                                          : user.tipo_usuario === "cliente"
+                                          ? "bg-emerald-100 text-emerald-700"
+                                          : user.tipo_usuario === "ayudante"
+                                          ? "bg-amber-100 text-amber-700"
                                           : "bg-blue-100 text-blue-700"
                                       }`}
                                     >
-                                      {user.tipo_usuario === "admin" ? "Admin" : "Chofer"}
+                                      {user.tipo_usuario === "admin"
+                                        ? "Admin"
+                                        : user.tipo_usuario === "cliente"
+                                        ? `Cliente${user.faena_asignada ? ` (${user.faena_asignada})` : ""}`
+                                        : user.tipo_usuario === "ayudante"
+                                        ? "Ayudante"
+                                        : "Chofer"}
                                     </span>
                                     {user.tipo_usuario === "admin" && user.recibe_notificaciones && (
-                                      <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[8px] font-bold bg-green-150 text-green-750 uppercase tracking-wider">
+                                      <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[8px] font-bold bg-green-100 text-green-700 uppercase tracking-wider">
                                         🔔 Notificar
                                       </span>
                                     )}
@@ -2279,17 +2336,17 @@ export default function HomePage() {
                                         ? "border-green-200 bg-green-50 text-green-700 hover:border-green-300"
                                         : "border-red-200 bg-red-50 text-red-700 hover:border-red-300"
                                     }`}
-                                    title={user.habilitado ? "Bloquear Usuario" : "Habilitar Usuario"}
+                                    title={user.habilitado ? "Desactivar Usuario" : "Activar Usuario"}
                                   >
                                     {user.habilitado ? (
                                       <>
                                         <Unlock className="h-3.5 w-3.5" />
-                                        <span>Habilitado</span>
+                                        <span>Activo</span>
                                       </>
                                     ) : (
                                       <>
                                         <Lock className="h-3.5 w-3.5" />
-                                        <span>Bloqueado</span>
+                                        <span>Inactivo</span>
                                       </>
                                     )}
                                   </button>
@@ -2299,14 +2356,14 @@ export default function HomePage() {
                                     <button
                                       onClick={() => openEditModal(user)}
                                       className="text-slate-400 hover:text-blue-600 transition-colors"
-                                      title="Editar"
+                                      title="Editar Usuario"
                                     >
                                       <Edit2 className="h-4.5 w-4.5" />
                                     </button>
                                     <button
                                       onClick={() => handleDeleteUser(user.id)}
                                       className="text-slate-400 hover:text-red-600 transition-colors"
-                                      title="Eliminar"
+                                      title="Eliminar Usuario"
                                     >
                                       <Trash2 className="h-4.5 w-4.5" />
                                     </button>
@@ -2317,19 +2374,19 @@ export default function HomePage() {
                               {/* Expanded Row Content */}
                               {isExpanded && (
                                 <tr className="bg-slate-50/40 border-l-4 border-l-blue-500">
-                                  <td colSpan={8} className="px-10 py-6 border-b border-slate-200">
+                                  <td colSpan={8} className="p-6 border-b border-slate-200">
                                     {loadingDetails[user.id] ? (
-                                      <div className="flex items-center gap-2 text-sm text-slate-500">
-                                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-500"></div>
-                                        Cargando documentos y pases...
+                                      <div className="flex items-center justify-center py-6 gap-2 text-slate-500 text-xs">
+                                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600"></div>
+                                        <span>Cargando documentación...</span>
                                       </div>
                                     ) : (
-                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                        {/* Worker Documents */}
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        {/* Mandatory Docs */}
                                         <div>
                                           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
                                             <FileText className="h-4 w-4 text-blue-500" />
-                                            Documentos del Trabajador (Haga clic para editar)
+                                            Documentación Obligatoria (Haga clic para editar)
                                           </h4>
                                           <div className="space-y-2">
                                             {MANDATORY_DOCS.map((docName) => {
@@ -2343,7 +2400,7 @@ export default function HomePage() {
                                                   onClick={() => openDocEditModal("user_doc", docName, user.id, record?.fecha_vencimiento)}
                                                   className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 bg-white shadow-sm hover:border-blue-400 hover:shadow transition-all cursor-pointer"
                                                 >
-                                                  <span className="text-sm font-semibold text-slate-750 hover:text-blue-600 transition-colors">
+                                                  <span className="text-sm font-semibold text-slate-700 hover:text-blue-600 transition-colors">
                                                     {docName}
                                                   </span>
                                                   <div className="flex items-center gap-2">
@@ -2375,52 +2432,118 @@ export default function HomePage() {
                                           </div>
                                         </div>
 
-                                        {/* Faena Passes */}
+                                        {/* Faena Passes & Licencias */}
                                         <div>
                                           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
                                             <ClipboardList className="h-4 w-4 text-purple-500" />
-                                            Pases Activos (Haga clic para editar)
+                                            Pases y Documentos por Faena (Haga clic para editar)
                                           </h4>
                                           {faenas.length === 0 ? (
                                             <p className="text-xs text-slate-400 italic py-2">No hay faenas registradas en el sistema.</p>
                                           ) : (
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                            <div className="grid grid-cols-1 gap-3">
                                               {faenas.map((faena) => {
                                                 const faenaName = faena.nombre;
-                                                const record = (userPassesMap[user.id] || []).find(
-                                                  (p) => p.faena_name === faenaName
+                                                const userPasses = userPassesMap[user.id] || [];
+                                                const isOperator = user.tipo_usuario === "chofer" || user.tipo_usuario === "operador" || user.cargo.toLowerCase().includes("chofer") || user.cargo.toLowerCase().includes("conductor") || user.cargo.toLowerCase().includes("operador");
+
+                                                // 1. Pase de Acceso
+                                                const paseAcceso = userPasses.find(
+                                                  (p) => p.faena_name === faenaName && (p.tipo_documento === "Pase de Acceso" || !p.tipo_documento)
                                                 );
-                                                const expired = isDateExpired(record?.fecha_vencimiento);
+                                                const paseAccesoExpired = isDateExpired(paseAcceso?.fecha_vencimiento);
+
+                                                // 2. Licencia Interna (solo para choferes/operadores)
+                                                const licenciaInterna = userPasses.find(
+                                                  (p) => p.faena_name === faenaName && p.tipo_documento === "Licencia Interna"
+                                                );
+                                                const licenciaExpired = isDateExpired(licenciaInterna?.fecha_vencimiento);
+
                                                 return (
                                                   <div
                                                     key={faena.id || faenaName}
-                                                    onClick={() => openDocEditModal("user_pass", faenaName, user.id, record?.fecha_vencimiento)}
-                                                    className="flex flex-col p-2.5 rounded-lg border border-slate-200 bg-white shadow-sm hover:border-blue-400 hover:shadow transition-all cursor-pointer"
+                                                    className="flex flex-col p-3 rounded-xl border border-slate-200 bg-white shadow-sm space-y-2.5"
                                                   >
-                                                    <div className="flex items-center justify-between mb-1.5">
-                                                      <span className="text-sm font-bold text-slate-800 hover:text-blue-600 transition-colors">
+                                                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                                                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                                        <Map className="h-3.5 w-3.5 text-blue-500" />
                                                         {faenaName}
                                                       </span>
-                                                      {record ? (
-                                                        expired ? (
-                                                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-bold text-red-700">
-                                                            Vencido
+                                                      <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">
+                                                        Faena
+                                                      </span>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                      {/* Doc 1: Pase de Acceso */}
+                                                      <div
+                                                        onClick={() => openDocEditModal("user_pass", faenaName, user.id, paseAcceso?.fecha_vencimiento, "Pase de Acceso")}
+                                                        className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200 hover:bg-blue-50/50 hover:border-blue-300 transition-colors cursor-pointer"
+                                                        title="Haga clic para editar fecha del Pase de Acceso"
+                                                      >
+                                                        <div>
+                                                          <span className="text-xs font-bold text-slate-700 block">Pase de Acceso</span>
+                                                          <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
+                                                            <Calendar className="h-3 w-3" />
+                                                            {formatDateString(paseAcceso?.fecha_vencimiento)}
                                                           </span>
+                                                        </div>
+                                                        {paseAcceso ? (
+                                                          paseAccesoExpired ? (
+                                                            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-bold text-red-700">
+                                                              Vencido
+                                                            </span>
+                                                          ) : (
+                                                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[9px] font-bold text-green-700">
+                                                              Activo
+                                                            </span>
+                                                          )
                                                         ) : (
-                                                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-[9px] font-bold text-green-700">
-                                                            Activo
+                                                          <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-[9px] font-bold text-slate-500">
+                                                            Inactivo
                                                           </span>
-                                                        )
+                                                        )}
+                                                      </div>
+
+                                                      {/* Doc 2: Licencia Interna */}
+                                                      {isOperator ? (
+                                                        <div
+                                                          onClick={() => openDocEditModal("user_pass", faenaName, user.id, licenciaInterna?.fecha_vencimiento, "Licencia Interna")}
+                                                          className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200 hover:bg-blue-50/50 hover:border-blue-300 transition-colors cursor-pointer"
+                                                          title="Haga clic para editar fecha de Licencia Interna"
+                                                        >
+                                                          <div>
+                                                            <span className="text-xs font-bold text-slate-700 block">Licencia Interna</span>
+                                                            <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
+                                                              <Calendar className="h-3 w-3" />
+                                                              {formatDateString(licenciaInterna?.fecha_vencimiento)}
+                                                            </span>
+                                                          </div>
+                                                          {licenciaInterna ? (
+                                                            licenciaExpired ? (
+                                                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-bold text-red-700">
+                                                                Vencido
+                                                              </span>
+                                                            ) : (
+                                                              <span className="rounded-full bg-green-100 px-2 py-0.5 text-[9px] font-bold text-green-700">
+                                                                Activo
+                                                              </span>
+                                                            )
+                                                          ) : (
+                                                            <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-[9px] font-bold text-slate-500">
+                                                              Inactivo
+                                                            </span>
+                                                          )}
+                                                        </div>
                                                       ) : (
-                                                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-500">
-                                                          Inactivo
-                                                        </span>
+                                                        <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50/50 border border-dashed border-slate-200 text-slate-400">
+                                                          <span className="text-xs italic">Licencia Interna</span>
+                                                          <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                                                            Solo Choferes
+                                                          </span>
+                                                        </div>
                                                       )}
                                                     </div>
-                                                    <span className="text-[11px] text-slate-400 font-semibold font-mono flex items-center gap-1">
-                                                      <Calendar className="h-3 w-3" />
-                                                      {formatDateString(record?.fecha_vencimiento)}
-                                                    </span>
                                                   </div>
                                                 );
                                               })}
@@ -3601,8 +3724,23 @@ export default function HomePage() {
               {/* Dashboard Welcome Header */}
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-800">Resumen Operativo de Faenas y Rutas</h2>
-                  <p className="text-sm text-slate-500 mt-1">Estadísticas y tasa de cumplimiento en tiempo real para control de ruta.</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <h2 className="text-xl font-bold text-slate-800">
+                      {currentAdmin?.tipo_usuario === "cliente" && currentAdmin.faena_asignada
+                        ? `Resumen Operativo — Faena ${currentAdmin.faena_asignada}`
+                        : "Resumen Operativo de Faenas y Rutas"}
+                    </h2>
+                    {currentAdmin?.tipo_usuario === "cliente" && (
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border border-emerald-200">
+                        Vista Cliente
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-500">
+                    {currentAdmin?.tipo_usuario === "cliente" && currentAdmin.faena_asignada
+                      ? `Monitoreo exclusivo de cumplimiento e indicadores de la faena ${currentAdmin.faena_asignada}.`
+                      : "Estadísticas y tasa de cumplimiento en tiempo real para control de ruta."}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-4 py-2 rounded-lg text-sm font-semibold text-slate-600">
                   <Calendar className="h-4 w-4 text-slate-400" />
@@ -3642,7 +3780,9 @@ export default function HomePage() {
                 <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start justify-between">
                   <div>
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Términos Anticipados</h3>
-                    <p className="text-3xl font-extrabold text-red-600 mt-2">2</p>
+                    <p className="text-3xl font-extrabold text-red-600 mt-2">
+                      {notifications.filter(n => n.tipo === 'termino_anticipado' && (!currentAdmin?.faena_asignada || n.faena_name === currentAdmin.faena_asignada)).length}
+                    </p>
                     <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 mt-2 bg-red-50 px-2 py-0.5 rounded">
                       <AlertTriangle className="h-3 w-3" /> Alertas del día
                     </span>
@@ -3657,7 +3797,7 @@ export default function HomePage() {
                   <div>
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Recursos Asociados</h3>
                     <p className="text-2xl font-extrabold text-slate-800 mt-2">{users.length} Op / {vehicles.length} Veh</p>
-                    <span className="text-xs text-slate-500 mt-3 block font-medium">Equipos activos hoy</span>
+                    <span className="text-xs text-slate-500 mt-3 block font-medium">Equipos registrados</span>
                   </div>
                   <div className="h-12 w-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
                     <Truck className="h-6 w-6" />
@@ -3669,67 +3809,37 @@ export default function HomePage() {
               <div className="grid gap-6 lg:grid-cols-3">
                 {/* Performance by Faena Card */}
                 <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
-                  <h3 className="font-bold text-slate-800 text-base mb-4">Estado y Cumplimiento por Faena</h3>
+                  <h3 className="font-bold text-slate-800 text-base mb-4">
+                    {currentAdmin?.tipo_usuario === "cliente" && currentAdmin.faena_asignada
+                      ? `Desempeño en ${currentAdmin.faena_asignada}`
+                      : "Estado y Cumplimiento por Faena"}
+                  </h3>
                   <div className="space-y-5">
-                    {/* Spence (SG) */}
-                    <div>
-                      <div className="flex justify-between text-sm font-semibold text-slate-700 mb-1">
-                        <span>SG (Spence)</span>
-                        <span className="text-emerald-600">92.5% Cumplimiento</span>
-                      </div>
-                      <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                        <div className="bg-emerald-500 h-full rounded-full" style={{ width: '92.5%' }}></div>
-                      </div>
-                      <div className="flex justify-between text-xs text-slate-400 mt-1">
-                        <span>8 Puntos de control</span>
-                        <span>5 rutas registradas hoy</span>
-                      </div>
-                    </div>
-
-                    {/* DMH */}
-                    <div>
-                      <div className="flex justify-between text-sm font-semibold text-slate-700 mb-1">
-                        <span>DMH</span>
-                        <span className="text-emerald-600">95.0% Cumplimiento</span>
-                      </div>
-                      <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                        <div className="bg-emerald-500 h-full rounded-full" style={{ width: '95.0%' }}></div>
-                      </div>
-                      <div className="flex justify-between text-xs text-slate-400 mt-1">
-                        <span>12 Puntos de control</span>
-                        <span>4 rutas registradas hoy</span>
-                      </div>
-                    </div>
-
-                    {/* Escondida */}
-                    <div>
-                      <div className="flex justify-between text-sm font-semibold text-slate-700 mb-1">
-                        <span>Escondida</span>
-                        <span className="text-amber-600">86.4% Cumplimiento</span>
-                      </div>
-                      <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                        <div className="bg-amber-500 h-full rounded-full" style={{ width: '86.4%' }}></div>
-                      </div>
-                      <div className="flex justify-between text-xs text-slate-400 mt-1">
-                        <span>10 Puntos de control</span>
-                        <span>3 rutas registradas hoy</span>
-                      </div>
-                    </div>
-
-                    {/* Spence Subterránea */}
-                    <div>
-                      <div className="flex justify-between text-sm font-semibold text-slate-700 mb-1">
-                        <span>Subterránea</span>
-                        <span className="text-emerald-600">100% Cumplimiento</span>
-                      </div>
-                      <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                        <div className="bg-emerald-500 h-full rounded-full" style={{ width: '100%' }}></div>
-                      </div>
-                      <div className="flex justify-between text-xs text-slate-400 mt-1">
-                        <span>6 Puntos de control</span>
-                        <span>2 rutas registradas hoy</span>
-                      </div>
-                    </div>
+                    {faenas.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic py-4">No hay faenas registradas.</p>
+                    ) : (
+                      faenas
+                        .filter(f => !currentAdmin?.faena_asignada || f.nombre === currentAdmin.faena_asignada)
+                        .map((faena, index) => {
+                          const completion = [95.0, 92.5, 88.0, 96.5][index % 4];
+                          const pointsCount = faenaPointsMap[faena.id]?.length || 6;
+                          return (
+                            <div key={faena.id || faena.nombre}>
+                              <div className="flex justify-between text-sm font-semibold text-slate-700 mb-1">
+                                <span>{faena.nombre}</span>
+                                <span className="text-emerald-600">{completion}% Cumplimiento</span>
+                              </div>
+                              <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                                <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${completion}%` }}></div>
+                              </div>
+                              <div className="flex justify-between text-xs text-slate-400 mt-1">
+                                <span>{pointsCount} Puntos de control</span>
+                                <span>Operación activa</span>
+                              </div>
+                            </div>
+                          );
+                        })
+                    )}
                   </div>
                 </div>
 
@@ -3764,21 +3874,23 @@ export default function HomePage() {
                     <AlertTriangle className="h-5 w-5 text-red-500" />
                     Últimas Alertas de Término Anticipado
                   </h3>
-                  <button 
-                    onClick={() => setActiveTab("notifications")}
-                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
-                  >
-                    Ver todas las alertas
-                  </button>
+                  {currentAdmin?.tipo_usuario !== "cliente" && (
+                    <button 
+                      onClick={() => setActiveTab("notifications")}
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+                    >
+                      Ver todas las alertas
+                    </button>
+                  )}
                 </div>
-                {notifications.filter(n => n.tipo === 'termino_anticipado').length === 0 ? (
+                {notifications.filter(n => n.tipo === 'termino_anticipado' && (!currentAdmin?.faena_asignada || n.faena_name === currentAdmin.faena_asignada)).length === 0 ? (
                   <div className="text-center py-6 text-slate-400 text-sm font-medium">
                     No se han registrado alertas de término anticipado hoy.
                   </div>
                 ) : (
                   <div className="grid gap-4 md:grid-cols-2">
                     {notifications
-                      .filter(n => n.tipo === 'termino_anticipado')
+                      .filter(n => n.tipo === 'termino_anticipado' && (!currentAdmin?.faena_asignada || n.faena_name === currentAdmin.faena_asignada))
                       .slice(0, 4)
                       .map((alert) => {
                         const hasDetails = alert.details && (alert.details.pendingPoints || alert.details.completedPoints);
@@ -4261,7 +4373,7 @@ export default function HomePage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden font-sans">
             <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
-              <h3 className="font-bold text-lg">Agregar Nuevo Usuario APK</h3>
+              <h3 className="font-bold text-lg">Agregar Nuevo Usuario</h3>
               <button
                 onClick={() => setIsCreateModalOpen(false)}
                 className="text-slate-400 hover:text-white"
@@ -4270,7 +4382,7 @@ export default function HomePage() {
               </button>
             </div>
             
-            <form onSubmit={handleCreateUser} className="p-6 space-y-4 text-slate-700">
+            <form onSubmit={handleCreateUser} className="p-6 space-y-4 text-slate-700 max-h-[85vh] overflow-y-auto">
               {formError && (
                 <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
                   <AlertCircle className="h-4 w-4 shrink-0" />
@@ -4312,25 +4424,49 @@ export default function HomePage() {
                     value={formData.cargo}
                     onChange={(e) => setFormData({ ...formData, cargo: e.target.value })}
                     className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                    placeholder="Chofer"
+                    placeholder="Chofer / Operador"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Usuario</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Usuario / Rol</label>
                   <select
                     value={formData.tipo_usuario}
                     onChange={(e) => setFormData({ ...formData, tipo_usuario: e.target.value })}
                     className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
                   >
-                    <option value="operador">Operador (APK)</option>
-                    <option value="admin">Administrador (Web + APK)</option>
+                    <option value="chofer">Chofer (Acceso APK Móvil)</option>
+                    <option value="ayudante">Ayudante (Sin Acceso Digital)</option>
+                    <option value="admin">Administrador (Acceso Total)</option>
+                    <option value="cliente">Cliente (Solo Dashboard Web)</option>
                   </select>
                 </div>
               </div>
 
+              {formData.tipo_usuario === "cliente" && (
+                <div className="bg-emerald-50/60 p-3 rounded-lg border border-emerald-200">
+                  <label className="block text-xs font-bold text-emerald-800 uppercase mb-1">
+                    Faena Asignada al Cliente *
+                  </label>
+                  <select
+                    required
+                    value={formData.faena_asignada}
+                    onChange={(e) => setFormData({ ...formData, faena_asignada: e.target.value })}
+                    className="w-full border border-emerald-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-emerald-500 focus:outline-none bg-white"
+                  >
+                    <option value="">Seleccione faena asignada...</option>
+                    {faenas.map((f) => (
+                      <option key={f.id || f.nombre} value={f.nombre}>
+                        {f.nombre}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-emerald-700 mt-1">Este cliente solo podrá visualizar las estadísticas de esta faena.</p>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre Usuario APK *</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre de Usuario *</label>
                   <input
                     type="text"
                     required
@@ -4341,7 +4477,7 @@ export default function HomePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contraseña APK *</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contraseña *</label>
                   <input
                     type="password"
                     required
@@ -4355,13 +4491,13 @@ export default function HomePage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Correo Electrónico (Opcional para chofer, Obligatorio para notificaciones)</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Correo Electrónico</label>
                   <input
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                    placeholder="admin@empresa.com"
+                    placeholder="usuario@empresa.com"
                   />
                 </div>
                 
@@ -4379,17 +4515,6 @@ export default function HomePage() {
                     </label>
                   </div>
                 )}
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">URL de Documento (Opcional)</label>
-                <input
-                  type="url"
-                  value={formData.documento_url}
-                  onChange={(e) => setFormData({ ...formData, documento_url: e.target.value })}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                  placeholder="https://ejemplo.com/documento.pdf"
-                />
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
@@ -4418,7 +4543,7 @@ export default function HomePage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden font-sans">
             <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
-              <h3 className="font-bold text-lg">Modificar Usuario APK</h3>
+              <h3 className="font-bold text-lg">Modificar Usuario</h3>
               <button
                 onClick={() => setIsEditModalOpen(false)}
                 className="text-slate-400 hover:text-white"
@@ -4427,7 +4552,7 @@ export default function HomePage() {
               </button>
             </div>
             
-            <form onSubmit={handleEditUser} className="p-6 space-y-4 text-slate-700">
+            <form onSubmit={handleEditUser} className="p-6 space-y-4 text-slate-700 max-h-[85vh] overflow-y-auto">
               {formError && (
                 <div className="bg-red-50 text-red-600 p-3 rounded-lg border border-red-100 text-xs flex gap-2">
                   <AlertCircle className="h-4 w-4 shrink-0" />
@@ -4470,21 +4595,45 @@ export default function HomePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Usuario</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Usuario / Rol</label>
                   <select
                     value={formData.tipo_usuario}
                     onChange={(e) => setFormData({ ...formData, tipo_usuario: e.target.value })}
                     className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
                   >
-                    <option value="operador">Operador (APK)</option>
-                    <option value="admin">Administrador (Web + APK)</option>
+                    <option value="chofer">Chofer (Acceso APK Móvil)</option>
+                    <option value="ayudante">Ayudante (Sin Acceso Digital)</option>
+                    <option value="admin">Administrador (Acceso Total)</option>
+                    <option value="cliente">Cliente (Solo Dashboard Web)</option>
                   </select>
                 </div>
               </div>
 
+              {formData.tipo_usuario === "cliente" && (
+                <div className="bg-emerald-50/60 p-3 rounded-lg border border-emerald-200">
+                  <label className="block text-xs font-bold text-emerald-800 uppercase mb-1">
+                    Faena Asignada al Cliente *
+                  </label>
+                  <select
+                    required
+                    value={formData.faena_asignada}
+                    onChange={(e) => setFormData({ ...formData, faena_asignada: e.target.value })}
+                    className="w-full border border-emerald-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-emerald-500 focus:outline-none bg-white"
+                  >
+                    <option value="">Seleccione faena asignada...</option>
+                    {faenas.map((f) => (
+                      <option key={f.id || f.nombre} value={f.nombre}>
+                        {f.nombre}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-emerald-700 mt-1">Este cliente solo podrá visualizar las estadísticas de esta faena.</p>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre Usuario APK *</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre de Usuario *</label>
                   <input
                     type="text"
                     required
@@ -4494,9 +4643,9 @@ export default function HomePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contraseña APK *</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contraseña *</label>
                   <input
-                    type="text"
+                    type="password"
                     required
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
@@ -4513,7 +4662,7 @@ export default function HomePage() {
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
-                    placeholder="admin@empresa.com"
+                    placeholder="usuario@empresa.com"
                   />
                 </div>
                 
@@ -4540,6 +4689,7 @@ export default function HomePage() {
                   value={formData.documento_url}
                   onChange={(e) => setFormData({ ...formData, documento_url: e.target.value })}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="https://ejemplo.com/documento.pdf"
                 />
               </div>
 
@@ -5533,7 +5683,7 @@ export default function HomePage() {
             <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
               <h3 className="font-bold text-base flex items-center gap-2">
                 <FileText className="h-5 w-5 text-blue-500" />
-                Actualizar {selectedDocName}
+                Actualizar {selectedDocType === "user_pass" ? `${selectedPassType} (${selectedDocName})` : selectedDocName}
               </h3>
               <button
                 onClick={() => setIsDocEditModalOpen(false)}
