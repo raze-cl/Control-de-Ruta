@@ -700,6 +700,25 @@ export default function HomePage() {
     }
   };
 
+  // Delete route record and associated point checkins
+  const handleDeleteRouteRecord = async (recordId: string) => {
+    if (!confirm("¿Está seguro de eliminar este registro de ruta? Se eliminarán también todos los check-ins de puntos asociados a esta jornada.")) {
+      return;
+    }
+    try {
+      await supabase.from("point_checkins").delete().eq("route_start_id", recordId);
+      const { error } = await supabase.from("route_starts").delete().eq("id", recordId);
+      if (error) throw error;
+
+      if (selectedRouteForModal?.id === recordId) {
+        setSelectedRouteForModal(null);
+      }
+      fetchRouteRecords();
+    } catch (err: any) {
+      alert("Error al eliminar registro: " + err.message);
+    }
+  };
+
   // Toggle notification read status in Supabase
   const toggleNotificationRead = async (id: string, currentReadStatus: boolean) => {
     try {
@@ -4448,7 +4467,7 @@ export default function HomePage() {
                           <th className="px-6 py-3.5">Fin Ruta</th>
                           <th className="px-6 py-3.5">Cumplimiento / Progreso</th>
                           <th className="px-6 py-3.5">Estado</th>
-                          <th className="px-6 py-3.5 text-center">Detalle</th>
+                          <th className="px-6 py-3.5 text-center">Acciones</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -4573,18 +4592,30 @@ export default function HomePage() {
                                 )}
                               </td>
 
-                              {/* Detalle Icon */}
+                              {/* Acciones */}
                               <td className="px-6 py-4 text-center">
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedRouteForModal(record);
-                                  }}
-                                  className="inline-flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition-colors"
-                                  title="Ver detalle de puntos"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </button>
+                                <div className="flex items-center justify-center gap-1">
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedRouteForModal(record);
+                                    }}
+                                    className="inline-flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition-colors"
+                                    title="Ver detalle de puntos"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </button>
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteRouteRecord(record.id);
+                                    }}
+                                    className="inline-flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                    title="Eliminar registro de ruta"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -4742,7 +4773,14 @@ export default function HomePage() {
                     </div>
                     
                     {/* Modal Footer */}
-                    <div className="bg-slate-50 px-6 py-4 flex justify-end border-t border-slate-200">
+                    <div className="bg-slate-50 px-6 py-4 flex items-center justify-between border-t border-slate-200">
+                      <button
+                        onClick={() => handleDeleteRouteRecord(selectedRouteForModal.id)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 text-xs font-semibold border border-red-200 transition-colors shadow-sm"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Eliminar Registro de Ruta
+                      </button>
                       <button
                         onClick={() => setSelectedRouteForModal(null)}
                         className="rounded-lg border border-slate-300 bg-white py-2 px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
