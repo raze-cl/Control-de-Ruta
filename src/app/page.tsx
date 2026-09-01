@@ -160,15 +160,6 @@ const MANDATORY_DOCS = [
   "Certificado 2"
 ];
 
-const FAENAS_DEFAULT = [
-  "SG",
-  "DMH",
-  "Subterranea",
-  "Escondida",
-  "Centinela",
-  "Spence"
-];
-
 const VEHICLE_DOCS = [
   "Padrón",
   "Permiso de circulación",
@@ -749,18 +740,36 @@ export default function HomePage() {
     }
   };
 
+  // Auto-reload data when active tab changes or on login
   useEffect(() => {
-    if (isLoggedIn) {
+    if (!isLoggedIn) return;
+
+    if (activeTab === "users") {
+      fetchUsers();
+      fetchFaenas();
+    } else if (activeTab === "vehicles") {
+      fetchVehicles();
+    } else if (activeTab === "faenas") {
+      fetchFaenas();
+    } else if (activeTab === "checklists") {
+      fetchChecklistSections();
+      fetchChecklistQuestions();
+      fetchChecklistSubmissions();
+      fetchFaenas();
+    } else if (activeTab === "notifications") {
+      fetchNotifications();
+    } else if (activeTab === "dashboard") {
       fetchUsers();
       fetchVehicles();
       fetchFaenas();
-      fetchChecklistQuestions();
-      fetchChecklistSubmissions();
-      fetchChecklistSections();
       fetchNotifications();
       fetchRouteRecords();
+      fetchChecklistSubmissions();
+    } else if (activeTab === "route_records") {
+      fetchRouteRecords();
+      fetchFaenas();
     }
-  }, [isLoggedIn]);
+  }, [activeTab, isLoggedIn]);
 
   // Handle Login submission
   const handleLogin = async (e: React.FormEvent) => {
@@ -897,14 +906,15 @@ export default function HomePage() {
 
     setExpandedUserIds([...expandedUserIds, userId]);
 
-    // Fetch details on demand if not fetched yet
-    if (!userDocsMap[userId] || !userPassesMap[userId]) {
-      setLoadingDetails((prev) => ({ ...prev, [userId]: true }));
-      try {
-        await refreshUserDetails(userId);
-      } finally {
-        setLoadingDetails((prev) => ({ ...prev, [userId]: false }));
-      }
+    // Always fetch fresh details and ensure faenas list is fresh
+    setLoadingDetails((prev) => ({ ...prev, [userId]: true }));
+    try {
+      await Promise.all([
+        refreshUserDetails(userId),
+        fetchFaenas(),
+      ]);
+    } finally {
+      setLoadingDetails((prev) => ({ ...prev, [userId]: false }));
     }
   };
 
@@ -918,14 +928,12 @@ export default function HomePage() {
 
     setExpandedVehicleIds([...expandedVehicleIds, vehicleId]);
 
-    // Fetch vehicle docs on demand if not fetched yet
-    if (!vehicleDocsMap[vehicleId]) {
-      setLoadingVehicleDetails((prev) => ({ ...prev, [vehicleId]: true }));
-      try {
-        await refreshVehicleDetails(vehicleId);
-      } finally {
-        setLoadingVehicleDetails((prev) => ({ ...prev, [vehicleId]: false }));
-      }
+    // Always fetch fresh vehicle details on expansion
+    setLoadingVehicleDetails((prev) => ({ ...prev, [vehicleId]: true }));
+    try {
+      await refreshVehicleDetails(vehicleId);
+    } finally {
+      setLoadingVehicleDetails((prev) => ({ ...prev, [vehicleId]: false }));
     }
   };
 
@@ -939,13 +947,12 @@ export default function HomePage() {
 
     setExpandedFaenaIds([...expandedFaenaIds, faenaId]);
 
-    if (!faenaPointsMap[faenaId]) {
-      setLoadingFaenaPoints((prev) => ({ ...prev, [faenaId]: true }));
-      try {
-        await refreshFaenaPoints(faenaId);
-      } finally {
-        setLoadingFaenaPoints((prev) => ({ ...prev, [faenaId]: false }));
-      }
+    // Always fetch fresh faena points on expansion
+    setLoadingFaenaPoints((prev) => ({ ...prev, [faenaId]: true }));
+    try {
+      await refreshFaenaPoints(faenaId);
+    } finally {
+      setLoadingFaenaPoints((prev) => ({ ...prev, [faenaId]: false }));
     }
   };
 
@@ -2374,46 +2381,51 @@ export default function HomePage() {
                                             <ClipboardList className="h-4 w-4 text-purple-500" />
                                             Pases Activos (Haga clic para editar)
                                           </h4>
-                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                            {FAENAS_DEFAULT.map((faenaName) => {
-                                              const record = (userPassesMap[user.id] || []).find(
-                                                (p) => p.faena_name === faenaName
-                                              );
-                                              const expired = isDateExpired(record?.fecha_vencimiento);
-                                              return (
-                                                <div
-                                                  key={faenaName}
-                                                  onClick={() => openDocEditModal("user_pass", faenaName, user.id, record?.fecha_vencimiento)}
-                                                  className="flex flex-col p-2.5 rounded-lg border border-slate-200 bg-white shadow-sm hover:border-blue-400 hover:shadow transition-all cursor-pointer"
-                                                >
-                                                  <div className="flex items-center justify-between mb-1.5">
-                                                    <span className="text-sm font-bold text-slate-800 hover:text-blue-600 transition-colors">
-                                                      {faenaName}
-                                                    </span>
-                                                    {record ? (
-                                                      expired ? (
-                                                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-bold text-red-700">
-                                                          Vencido
-                                                        </span>
-                                                      ) : (
-                                                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-[9px] font-bold text-green-700">
-                                                          Activo
-                                                        </span>
-                                                      )
-                                                    ) : (
-                                                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-500">
-                                                        Inactivo
+                                          {faenas.length === 0 ? (
+                                            <p className="text-xs text-slate-400 italic py-2">No hay faenas registradas en el sistema.</p>
+                                          ) : (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                              {faenas.map((faena) => {
+                                                const faenaName = faena.nombre;
+                                                const record = (userPassesMap[user.id] || []).find(
+                                                  (p) => p.faena_name === faenaName
+                                                );
+                                                const expired = isDateExpired(record?.fecha_vencimiento);
+                                                return (
+                                                  <div
+                                                    key={faena.id || faenaName}
+                                                    onClick={() => openDocEditModal("user_pass", faenaName, user.id, record?.fecha_vencimiento)}
+                                                    className="flex flex-col p-2.5 rounded-lg border border-slate-200 bg-white shadow-sm hover:border-blue-400 hover:shadow transition-all cursor-pointer"
+                                                  >
+                                                    <div className="flex items-center justify-between mb-1.5">
+                                                      <span className="text-sm font-bold text-slate-800 hover:text-blue-600 transition-colors">
+                                                        {faenaName}
                                                       </span>
-                                                    )}
+                                                      {record ? (
+                                                        expired ? (
+                                                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-bold text-red-700">
+                                                            Vencido
+                                                          </span>
+                                                        ) : (
+                                                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-[9px] font-bold text-green-700">
+                                                            Activo
+                                                          </span>
+                                                        )
+                                                      ) : (
+                                                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-500">
+                                                          Inactivo
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                    <span className="text-[11px] text-slate-400 font-semibold font-mono flex items-center gap-1">
+                                                      <Calendar className="h-3 w-3" />
+                                                      {formatDateString(record?.fecha_vencimiento)}
+                                                    </span>
                                                   </div>
-                                                  <span className="text-[11px] text-slate-400 font-semibold font-mono flex items-center gap-1">
-                                                    <Calendar className="h-3 w-3" />
-                                                    {formatDateString(record?.fecha_vencimiento)}
-                                                  </span>
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
                                         </div>
                                       </div>
                                     )}
