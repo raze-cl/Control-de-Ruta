@@ -125,6 +125,8 @@ interface RouteRecord {
   hora_inicio: string;
   latitud_inicio?: number;
   longitud_inicio?: number;
+  ayudante_id?: string;
+  ayudante_nombre?: string;
   created_at: string;
   faena_name?: string;
   driver_name?: string;
@@ -653,6 +655,8 @@ export default function HomePage() {
           hora_inicio: start.hora_inicio?.slice(0, 5) || "-",
           latitud_inicio: start.latitud_inicio,
           longitud_inicio: start.longitud_inicio,
+          ayudante_id: start.ayudante_id,
+          ayudante_nombre: start.ayudante_nombre,
           created_at: start.created_at,
           faena_name: faenaName,
           driver_name: user?.nombre || "Chofer Desconocido",
@@ -4109,6 +4113,11 @@ export default function HomePage() {
                               <td className="px-6 py-4">
                                 <div className="font-semibold">{record.driver_name}</div>
                                 <div className="text-slate-400 text-xs mt-0.5">{record.driver_rut}</div>
+                                {record.ayudante_nombre && (
+                                  <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded font-medium">
+                                    <span className="font-bold">Ayd:</span> {record.ayudante_nombre}
+                                  </div>
+                                )}
                               </td>
 
                               {/* Vehículo */}
@@ -4248,10 +4257,14 @@ export default function HomePage() {
                     {/* Modal Content */}
                     <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto text-slate-700">
                       {/* Route Summary Row */}
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs">
                         <div>
                           <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Operador</span>
                           <span className="font-bold text-slate-800">{selectedRouteForModal.driver_name}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Ayudante</span>
+                          <span className="font-bold text-purple-700">{selectedRouteForModal.ayudante_nombre || "Sin Asignar"}</span>
                         </div>
                         <div>
                           <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Vehículo</span>
