@@ -908,15 +908,16 @@ export default function HomePage() {
     }
   };
 
-  // Toggle User Row Expansion
+  // Toggle User Row Expansion (Only one row expanded at a time)
   const toggleRow = async (userId: string) => {
     const isExpanded = expandedUserIds.includes(userId);
     if (isExpanded) {
-      setExpandedUserIds(expandedUserIds.filter((id) => id !== userId));
+      setExpandedUserIds([]);
       return;
     }
 
-    setExpandedUserIds([...expandedUserIds, userId]);
+    // Collapse any previous open row and expand only this one
+    setExpandedUserIds([userId]);
 
     // Always fetch fresh details and ensure faenas list is fresh
     setLoadingDetails((prev) => ({ ...prev, [userId]: true }));
@@ -930,15 +931,16 @@ export default function HomePage() {
     }
   };
 
-  // Toggle Vehicle Row Expansion
+  // Toggle Vehicle Row Expansion (Only one row expanded at a time)
   const toggleVehicleRow = async (vehicleId: string) => {
     const isExpanded = expandedVehicleIds.includes(vehicleId);
     if (isExpanded) {
-      setExpandedVehicleIds(expandedVehicleIds.filter((id) => id !== vehicleId));
+      setExpandedVehicleIds([]);
       return;
     }
 
-    setExpandedVehicleIds([...expandedVehicleIds, vehicleId]);
+    // Collapse any previous open row and expand only this one
+    setExpandedVehicleIds([vehicleId]);
 
     // Always fetch fresh vehicle details on expansion
     setLoadingVehicleDetails((prev) => ({ ...prev, [vehicleId]: true }));
@@ -2432,121 +2434,137 @@ export default function HomePage() {
                                           </div>
                                         </div>
 
-                                        {/* Faena Passes & Licencias */}
+                                        {/* Faena Passes & Licencias - Tabla Compacta de 3 Columnas */}
                                         <div>
-                                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
-                                            <ClipboardList className="h-4 w-4 text-purple-500" />
-                                            Pases y Documentos por Faena (Haga clic para editar)
-                                          </h4>
+                                          <div className="flex items-center justify-between mb-3">
+                                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                                              <ClipboardList className="h-4 w-4 text-purple-500" />
+                                              Pases y Documentos por Faena
+                                            </h4>
+                                            <span className="text-[10px] text-slate-400 font-medium">
+                                              {faenas.length} {faenas.length === 1 ? "faena" : "faenas"} • Clic para editar
+                                            </span>
+                                          </div>
+
                                           {faenas.length === 0 ? (
                                             <p className="text-xs text-slate-400 italic py-2">No hay faenas registradas en el sistema.</p>
                                           ) : (
-                                            <div className="grid grid-cols-1 gap-3">
-                                              {faenas.map((faena) => {
-                                                const faenaName = faena.nombre;
-                                                const userPasses = userPassesMap[user.id] || [];
-                                                const isOperator = user.tipo_usuario === "chofer" || user.tipo_usuario === "operador" || user.cargo.toLowerCase().includes("chofer") || user.cargo.toLowerCase().includes("conductor") || user.cargo.toLowerCase().includes("operador");
+                                            <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                                              <div className="max-h-[300px] overflow-y-auto overflow-x-auto">
+                                                <table className="w-full text-left text-xs border-collapse">
+                                                  <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
+                                                    <tr>
+                                                      <th className="py-2.5 px-3">Faena</th>
+                                                      <th className="py-2.5 px-3">Pase de Acceso</th>
+                                                      <th className="py-2.5 px-3">Licencia Interna</th>
+                                                    </tr>
+                                                  </thead>
+                                                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                                                    {faenas.map((faena) => {
+                                                      const faenaName = faena.nombre;
+                                                      const userPasses = userPassesMap[user.id] || [];
+                                                      const isOperator =
+                                                        user.tipo_usuario === "chofer" ||
+                                                        user.tipo_usuario === "operador" ||
+                                                        user.cargo.toLowerCase().includes("chofer") ||
+                                                        user.cargo.toLowerCase().includes("conductor") ||
+                                                        user.cargo.toLowerCase().includes("operador");
 
-                                                // 1. Pase de Acceso
-                                                const paseAcceso = userPasses.find(
-                                                  (p) => p.faena_name === faenaName && (p.tipo_documento === "Pase de Acceso" || !p.tipo_documento)
-                                                );
-                                                const paseAccesoExpired = isDateExpired(paseAcceso?.fecha_vencimiento);
+                                                      // 1. Pase de Acceso
+                                                      const paseAcceso = userPasses.find(
+                                                        (p) => p.faena_name === faenaName && (p.tipo_documento === "Pase de Acceso" || !p.tipo_documento)
+                                                      );
+                                                      const paseAccesoExpired = isDateExpired(paseAcceso?.fecha_vencimiento);
 
-                                                // 2. Licencia Interna (solo para choferes/operadores)
-                                                const licenciaInterna = userPasses.find(
-                                                  (p) => p.faena_name === faenaName && p.tipo_documento === "Licencia Interna"
-                                                );
-                                                const licenciaExpired = isDateExpired(licenciaInterna?.fecha_vencimiento);
+                                                      // 2. Licencia Interna (solo choferes/operadores)
+                                                      const licenciaInterna = userPasses.find(
+                                                        (p) => p.faena_name === faenaName && p.tipo_documento === "Licencia Interna"
+                                                      );
+                                                      const licenciaExpired = isDateExpired(licenciaInterna?.fecha_vencimiento);
 
-                                                return (
-                                                  <div
-                                                    key={faena.id || faenaName}
-                                                    className="flex flex-col p-3 rounded-xl border border-slate-200 bg-white shadow-sm space-y-2.5"
-                                                  >
-                                                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                                                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                                                        <Map className="h-3.5 w-3.5 text-blue-500" />
-                                                        {faenaName}
-                                                      </span>
-                                                      <span className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider">
-                                                        Faena
-                                                      </span>
-                                                    </div>
+                                                      return (
+                                                        <tr key={faena.id || faenaName} className="hover:bg-slate-50/80 transition-colors">
+                                                          {/* Columna 1: Faena */}
+                                                          <td className="py-2.5 px-3 font-bold text-slate-800 whitespace-nowrap">
+                                                            <div className="flex items-center gap-1.5">
+                                                              <Map className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                                                              <span>{faenaName}</span>
+                                                            </div>
+                                                          </td>
 
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                      {/* Doc 1: Pase de Acceso */}
-                                                      <div
-                                                        onClick={() => openDocEditModal("user_pass", faenaName, user.id, paseAcceso?.fecha_vencimiento, "Pase de Acceso")}
-                                                        className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200 hover:bg-blue-50/50 hover:border-blue-300 transition-colors cursor-pointer"
-                                                        title="Haga clic para editar fecha del Pase de Acceso"
-                                                      >
-                                                        <div>
-                                                          <span className="text-xs font-bold text-slate-700 block">Pase de Acceso</span>
-                                                          <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
-                                                            <Calendar className="h-3 w-3" />
-                                                            {formatDateString(paseAcceso?.fecha_vencimiento)}
-                                                          </span>
-                                                        </div>
-                                                        {paseAcceso ? (
-                                                          paseAccesoExpired ? (
-                                                            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-bold text-red-700">
-                                                              Vencido
-                                                            </span>
-                                                          ) : (
-                                                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[9px] font-bold text-green-700">
-                                                              Activo
-                                                            </span>
-                                                          )
-                                                        ) : (
-                                                          <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-[9px] font-bold text-slate-500">
-                                                            Inactivo
-                                                          </span>
-                                                        )}
-                                                      </div>
-
-                                                      {/* Doc 2: Licencia Interna */}
-                                                      {isOperator ? (
-                                                        <div
-                                                          onClick={() => openDocEditModal("user_pass", faenaName, user.id, licenciaInterna?.fecha_vencimiento, "Licencia Interna")}
-                                                          className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200 hover:bg-blue-50/50 hover:border-blue-300 transition-colors cursor-pointer"
-                                                          title="Haga clic para editar fecha de Licencia Interna"
-                                                        >
-                                                          <div>
-                                                            <span className="text-xs font-bold text-slate-700 block">Licencia Interna</span>
-                                                            <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
-                                                              <Calendar className="h-3 w-3" />
-                                                              {formatDateString(licenciaInterna?.fecha_vencimiento)}
-                                                            </span>
-                                                          </div>
-                                                          {licenciaInterna ? (
-                                                            licenciaExpired ? (
-                                                              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-bold text-red-700">
-                                                                Vencido
+                                                          {/* Columna 2: Pase de Acceso */}
+                                                          <td className="py-2.5 px-3">
+                                                            <button
+                                                              type="button"
+                                                              onClick={() =>
+                                                                openDocEditModal("user_pass", faenaName, user.id, paseAcceso?.fecha_vencimiento, "Pase de Acceso")
+                                                              }
+                                                              className="flex items-center gap-2 group text-left w-full hover:opacity-80 transition-opacity"
+                                                              title="Clic para editar fecha del Pase de Acceso"
+                                                            >
+                                                              {paseAcceso ? (
+                                                                paseAccesoExpired ? (
+                                                                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-bold text-red-700 whitespace-nowrap">
+                                                                    <XCircle className="h-2.5 w-2.5" /> Vencido
+                                                                  </span>
+                                                                ) : (
+                                                                  <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[9px] font-bold text-green-700 whitespace-nowrap">
+                                                                    <CheckCircle className="h-2.5 w-2.5" /> Activo
+                                                                  </span>
+                                                                )
+                                                              ) : (
+                                                                <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-400 whitespace-nowrap">
+                                                                  Inactivo
+                                                                </span>
+                                                              )}
+                                                              <span className="text-[10px] text-slate-500 font-mono flex items-center gap-0.5 group-hover:text-blue-600 transition-colors whitespace-nowrap">
+                                                                <Calendar className="h-2.5 w-2.5 text-slate-400" />
+                                                                {formatDateString(paseAcceso?.fecha_vencimiento)}
                                                               </span>
+                                                            </button>
+                                                          </td>
+
+                                                          {/* Columna 3: Licencia Interna */}
+                                                          <td className="py-2.5 px-3">
+                                                            {isOperator ? (
+                                                              <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                  openDocEditModal("user_pass", faenaName, user.id, licenciaInterna?.fecha_vencimiento, "Licencia Interna")
+                                                                }
+                                                                className="flex items-center gap-2 group text-left w-full hover:opacity-80 transition-opacity"
+                                                                title="Clic para editar fecha de Licencia Interna"
+                                                              >
+                                                                {licenciaInterna ? (
+                                                                  licenciaExpired ? (
+                                                                    <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-bold text-red-700 whitespace-nowrap">
+                                                                      <XCircle className="h-2.5 w-2.5" /> Vencido
+                                                                    </span>
+                                                                  ) : (
+                                                                    <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[9px] font-bold text-green-700 whitespace-nowrap">
+                                                                      <CheckCircle className="h-2.5 w-2.5" /> Activo
+                                                                    </span>
+                                                                  )
+                                                                ) : (
+                                                                  <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-400 whitespace-nowrap">
+                                                                    Inactivo
+                                                                  </span>
+                                                                )}
+                                                                <span className="text-[10px] text-slate-500 font-mono flex items-center gap-0.5 group-hover:text-blue-600 transition-colors whitespace-nowrap">
+                                                                  <Calendar className="h-2.5 w-2.5 text-slate-400" />
+                                                                  {formatDateString(licenciaInterna?.fecha_vencimiento)}
+                                                                </span>
+                                                              </button>
                                                             ) : (
-                                                              <span className="rounded-full bg-green-100 px-2 py-0.5 text-[9px] font-bold text-green-700">
-                                                                Activo
-                                                              </span>
-                                                            )
-                                                          ) : (
-                                                            <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-[9px] font-bold text-slate-500">
-                                                              Inactivo
-                                                            </span>
-                                                          )}
-                                                        </div>
-                                                      ) : (
-                                                        <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50/50 border border-dashed border-slate-200 text-slate-400">
-                                                          <span className="text-xs italic">Licencia Interna</span>
-                                                          <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                                                            Solo Choferes
-                                                          </span>
-                                                        </div>
-                                                      )}
-                                                    </div>
-                                                  </div>
-                                                );
-                                              })}
+                                                              <span className="text-[10px] text-slate-400 italic">No aplica</span>
+                                                            )}
+                                                          </td>
+                                                        </tr>
+                                                      );
+                                                    })}
+                                                  </tbody>
+                                                </table>
+                                              </div>
                                             </div>
                                           )}
                                         </div>
