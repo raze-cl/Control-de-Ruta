@@ -2864,6 +2864,7 @@ export default function HomePage() {
                         <tr>
                           <th className="px-6 py-4 w-10"></th>
                           <th className="px-6 py-4">Nombre Faena</th>
+                          <th className="px-6 py-4">Códigos QR de Acceso</th>
                           <th className="px-6 py-4">Inicio Contrato</th>
                           <th className="px-6 py-4">Fin Contrato</th>
                           <th className="px-6 py-4 text-right">Acciones</th>
@@ -2885,6 +2886,36 @@ export default function HomePage() {
                                   {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                                 </td>
                                 <td className="px-6 py-4 font-bold text-slate-800">{faena.nombre}</td>
+                                <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedFaenaForQR(faena);
+                                        setFaenaQRType("inicio");
+                                        setIsFaenaQRModalOpen(true);
+                                      }}
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold rounded-lg border border-emerald-200 transition-colors shadow-xs cursor-pointer"
+                                      title="Ver QR Inicio de Faena (Entrada)"
+                                    >
+                                      <QrCode className="h-3.5 w-3.5 text-emerald-600" />
+                                      QR Inicio
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedFaenaForQR(faena);
+                                        setFaenaQRType("fin");
+                                        setIsFaenaQRModalOpen(true);
+                                      }}
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg border border-indigo-200 transition-colors shadow-xs cursor-pointer"
+                                      title="Ver QR Final de Faena (Salida)"
+                                    >
+                                      <QrCode className="h-3.5 w-3.5 text-indigo-600" />
+                                      QR Final
+                                    </button>
+                                  </div>
+                                </td>
                                 <td className="px-6 py-4 font-semibold text-slate-700 font-mono">
                                   {formatDateString(faena.fecha_inicio_contrato)}
                                 </td>
@@ -2914,7 +2945,7 @@ export default function HomePage() {
                               {/* Expanded Row Content (Faena Points / Route) */}
                               {isExpanded && (
                                 <tr className="bg-slate-50/40 border-l-4 border-l-blue-500">
-                                  <td colSpan={5} className="px-10 py-6 border-b border-slate-200">
+                                  <td colSpan={6} className="px-10 py-6 border-b border-slate-200">
                                     {loadingFaenaPoints[faena.id] ? (
                                       <div className="flex items-center gap-2 text-sm text-slate-500">
                                         <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-500"></div>
@@ -2922,47 +2953,6 @@ export default function HomePage() {
                                       </div>
                                     ) : (
                                       <div>
-                                        {/* Faena Start/End QR Codes Box */}
-                                        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
-                                          <div className="flex items-center gap-3">
-                                            <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
-                                              <QrCode className="h-5 w-5" />
-                                            </div>
-                                            <div>
-                                              <div className="text-xs font-bold text-slate-800">
-                                                Códigos QR de Inicio y Término de Faena
-                                              </div>
-                                              <div className="text-[11px] text-slate-500 font-medium">
-                                                Genera los códigos QR de acceso para que los operadores validen la entrada y el cierre formal de la ruta.
-                                              </div>
-                                            </div>
-                                          </div>
-                                          <div className="flex items-center gap-2">
-                                            <button
-                                              onClick={() => {
-                                                setSelectedFaenaForQR(faena);
-                                                setFaenaQRType("inicio");
-                                                setIsFaenaQRModalOpen(true);
-                                              }}
-                                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold rounded-lg border border-emerald-200 shadow-xs transition-colors cursor-pointer"
-                                            >
-                                              <QrCode className="h-3.5 w-3.5 text-emerald-600" />
-                                              QR Inicio (Entrada)
-                                            </button>
-                                            <button
-                                              onClick={() => {
-                                                setSelectedFaenaForQR(faena);
-                                                setFaenaQRType("fin");
-                                                setIsFaenaQRModalOpen(true);
-                                              }}
-                                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg border border-indigo-200 shadow-xs transition-colors cursor-pointer"
-                                            >
-                                              <QrCode className="h-3.5 w-3.5 text-indigo-600" />
-                                              QR Final (Salida)
-                                            </button>
-                                          </div>
-                                        </div>
-
                                         <div className="flex items-center justify-between mb-4">
                                           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                                             <MapPin className="h-4 w-4 text-blue-500" />
