@@ -682,43 +682,31 @@ export default function HomePage() {
         const faenaName = faenaMap[start.faena_id] || "Faena Desconocida";
         const totalPoints = faenaPointsCountMap[start.faena_id] || 0;
         const checkins = checkinsByRouteMap[start.id] || [];
-        const completedPoints = checkins.length;
-        
-        const progressPercent = totalPoints > 0 ? Math.round((completedPoints / totalPoints) * 100) : 0;
-        
-        let horaFin = "-";
-        if (completedPoints === totalPoints && totalPoints > 0 && checkins.length > 0) {
-          const sorted = [...checkins].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-          const lastCheckinTime = new Date(sorted[sorted.length - 1].created_at);
-          horaFin = lastCheckinTime.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
-        }
 
-        let estado = "En Proceso";
-        let motivoTermino = undefined;
-        
-        const recordDateStr = start.fecha_inicio;
-        const driverRut = user?.rut || "";
-        const lookupKey = `${recordDateStr}_${driverRut}_${faenaName}_${start.vehicle_code}`;
-        
-        const earlyTermNotification = earlyTerminationsMap[start.id] || earlyTerminationsMap[lookupKey];
-        if (earlyTermNotification) {
-          estado = "Término Anticipado";
-          motivoTermino = earlyTermNotification.motivo || "No especificado";
-          
-          if (earlyTermNotification.created_at) {
-            const lastCheckinTime = new Date(earlyTermNotification.created_at);
-            horaFin = lastCheckinTime.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
-          }
-        } else if (completedPoints === totalPoints && totalPoints > 0) {
-          estado = "Finalizada";
-        }
+        // Also look for checkins of the same day, user and faena to support resumed routes
+        const sameDayRouteStarts = starts.filter(s => 
+          s.user_id === start.user_id && 
+          s.faena_id === start.faena_id && 
+          s.fecha_inicio === start.fecha_inicio
+        );
+        const sameDayRouteIds = sameDayRouteStarts.map(s => s.id);
+        const allDayCheckins = allCheckins?.filter(c => sameDayRouteIds.includes(c.route_start_id)) || [];
 
         // Filter points for this faena
         const faenaPointsList = allPoints?.filter(p => p.faena_id === start.faena_id) || [];
         
         // Map points to RoutePointDetail with full checkin details & evidence lookup
         const puntosDetalle: RoutePointDetail[] = faenaPointsList.map(pt => {
-          const checkin = checkins.find(c => c.point_id === pt.id);
+          // Priority 1: Direct checkin on this specific route
+          let checkin = checkins.find(c => c.point_id === pt.id);
+          // Priority 2: If not found, check if completed earlier today on a prior session of same faena
+          if (!checkin) {
+            checkin = allDayCheckins.find(c => c.point_id === pt.id && c.estado_punto === 'Completado');
+          }
+          if (!checkin) {
+            checkin = allDayCheckins.find(c => c.point_id === pt.id);
+          }
+
           const isProblem = checkin?.estado_punto === 'No Realizado / Con Problema';
           
           let fotoEvidencia = checkin?.foto_evidencia_url || checkin?.foto_inicio_url || checkin?.foto_termino_url || null;
@@ -753,6 +741,42 @@ export default function HomePage() {
             respuestas: checkin?.respuestas,
           };
         });
+
+        // Calculate progress: count unique completed points
+        const completedPointsCount = puntosDetalle.filter(p => p.completado && p.estado_punto === 'Completado').length;
+        const completedPoints = (start.estado === 'Finalizada' || completedPointsCount === totalPoints) 
+          ? completedPointsCount 
+          : checkins.length;
+        const progressPercent = totalPoints > 0 ? Math.round((completedPoints / totalPoints) * 100) : 0;
+        
+        let horaFin = "-";
+        if (start.hora_fin) {
+          horaFin = start.hora_fin.slice(0, 5);
+        } else if (completedPoints === totalPoints && totalPoints > 0 && checkins.length > 0) {
+          const sorted = [...checkins].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+          const lastCheckinTime = new Date(sorted[sorted.length - 1].created_at);
+          horaFin = lastCheckinTime.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        let estado = start.estado || (completedPoints === totalPoints && totalPoints > 0 ? "Finalizada" : "En Proceso");
+        let motivoTermino = undefined;
+        
+        const recordDateStr = start.fecha_inicio;
+        const driverRut = user?.rut || "";
+        const lookupKey = `${recordDateStr}_${driverRut}_${faenaName}_${start.vehicle_code}`;
+        
+        const earlyTermNotification = earlyTerminationsMap[start.id] || earlyTerminationsMap[lookupKey];
+        if (earlyTermNotification) {
+          estado = "Término Anticipado";
+          motivoTermino = earlyTermNotification.motivo || "No especificado";
+          
+          if (!start.hora_fin && earlyTermNotification.created_at) {
+            const lastCheckinTime = new Date(earlyTermNotification.created_at);
+            horaFin = lastCheckinTime.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+          }
+        } else if (completedPoints === totalPoints && totalPoints > 0) {
+          estado = "Finalizada";
+        }
 
         return {
           id: start.id,
