@@ -116,6 +116,9 @@ interface FaenaPoint {
   codigo: string;
   latitude: number;
   longitude: number;
+  periodicidad?: "diario" | "semanal" | "dias_especificos";
+  dias_semana?: string[];
+  frecuencia_semanal?: number;
   ultimo_registro_servicio?: string;
   created_at?: string;
 }
@@ -314,6 +317,9 @@ export default function HomePage() {
     codigo: "",
     latitude: 0,
     longitude: 0,
+    periodicidad: "diario" as "diario" | "semanal" | "dias_especificos",
+    dias_semana: ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"] as string[],
+    frecuencia_semanal: 1,
   });
   const [pointFormError, setPointFormError] = useState("");
   const [savingPointForm, setSavingPointForm] = useState(false);
@@ -430,7 +436,7 @@ export default function HomePage() {
     }
   };
 
-  // Load faenas from Supabase
+  // Load faenas and their points from Supabase
   const fetchFaenas = async () => {
     setLoadingFaenas(true);
     try {
@@ -441,6 +447,20 @@ export default function HomePage() {
 
       if (error) throw error;
       setFaenas(data || []);
+
+      const { data: allPoints } = await supabase
+        .from("faena_points")
+        .select("*")
+        .order("codigo", { ascending: true });
+
+      if (allPoints) {
+        const pointsMap: Record<string, FaenaPoint[]> = {};
+        allPoints.forEach((pt: FaenaPoint) => {
+          if (!pointsMap[pt.faena_id]) pointsMap[pt.faena_id] = [];
+          pointsMap[pt.faena_id].push(pt);
+        });
+        setFaenaPointsMap((prev) => ({ ...prev, ...pointsMap }));
+      }
     } catch (err: any) {
       console.error("Error fetching faenas:", err.message);
     } finally {
@@ -1483,6 +1503,9 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
       codigo: "",
       latitude: -22.9036,
       longitude: -68.1998,
+      periodicidad: "diario",
+      dias_semana: ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"],
+      frecuencia_semanal: 1,
     });
     setPointFormError("");
     setIsPointModalOpen(true);
@@ -1496,6 +1519,9 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
       codigo: point.codigo,
       latitude: point.latitude,
       longitude: point.longitude,
+      periodicidad: point.periodicidad || "diario",
+      dias_semana: point.dias_semana || ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"],
+      frecuencia_semanal: point.frecuencia_semanal || 1,
     });
     setPointFormError("");
     setIsPointModalOpen(true);
@@ -1833,21 +1859,26 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
     setPointFormError("");
 
     if (!selectedFaenaForPoint || !pointFormData.codigo || !pointFormData.latitude || !pointFormData.longitude) {
-      setPointFormError("Por favor completa todos los campos.");
+      setPointFormError("Por favor completa todos los campos obligatorios.");
       return;
     }
 
     setSavingPointForm(true);
     try {
+      const payload = {
+        codigo: pointFormData.codigo.trim(),
+        latitude: Number(pointFormData.latitude),
+        longitude: Number(pointFormData.longitude),
+        periodicidad: pointFormData.periodicidad,
+        dias_semana: pointFormData.dias_semana,
+        frecuencia_semanal: pointFormData.frecuencia_semanal,
+      };
+
       if (selectedPoint) {
         // Edit Mode
         const { error } = await supabase
           .from("faena_points")
-          .update({
-            codigo: pointFormData.codigo.trim(),
-            latitude: Number(pointFormData.latitude),
-            longitude: Number(pointFormData.longitude),
-          })
+          .update(payload)
           .eq("id", selectedPoint.id);
 
         if (error) throw error;
@@ -1858,9 +1889,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
           .insert([
             {
               faena_id: selectedFaenaForPoint.id,
-              codigo: pointFormData.codigo.trim(),
-              latitude: Number(pointFormData.latitude),
-              longitude: Number(pointFormData.longitude),
+              ...payload,
             },
           ]);
 
@@ -3408,9 +3437,24 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                                                     <div className="text-sm font-bold text-slate-800 truncate" title={point.codigo}>
                                                       {point.codigo}
                                                     </div>
-                                                    <span className="text-[10px] text-slate-400 font-semibold font-mono">
-                                                      Lat: {point.latitude} • Lng: {point.longitude}
-                                                    </span>
+                                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                                      <span className="text-[10px] text-slate-400 font-semibold font-mono">
+                                                        Lat: {point.latitude} • Lng: {point.longitude}
+                                                      </span>
+                                                    </div>
+                                                    <div className="mt-1.5">
+                                                      <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                                        point.periodicidad === 'diario' || !point.periodicidad
+                                                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                                          : point.periodicidad === 'semanal'
+                                                          ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                                          : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                      }`}>
+                                                        {(!point.periodicidad || point.periodicidad === 'diario') && '📅 Diario (7/7)'}
+                                                        {point.periodicidad === 'semanal' && '📆 Semanal (1x)'}
+                                                        {point.periodicidad === 'dias_especificos' && `🗓️ ${(point.dias_semana || []).map((d: string) => d.charAt(0).toUpperCase() + d.slice(1,3)).join(', ')}`}
+                                                      </span>
+                                                    </div>
                                                   </div>
                                                   <div className="flex gap-1.5 shrink-0">
                                                     <button
@@ -4248,10 +4292,77 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
             const dashIncompletePoints = Math.max(0, dashTotalPoints - dashCompletedPoints);
             const dashComplianceRate = dashTotalPoints > 0 ? Math.round((dashCompletedPoints / dashTotalPoints) * 100) : (dashTotalRoutes > 0 ? 100 : 0);
 
-            // 3. Faena Breakdown
+            // 3. Estimate Scheduled Points based on Periodicity for the Filtered Timeframe
             const activeFaenasList = currentAdmin?.tipo_usuario === "cliente" && currentAdmin.faena_asignada
               ? faenas.filter(f => f.nombre === currentAdmin.faena_asignada)
               : (dashboardFaenaFilter ? faenas.filter(f => f.nombre === dashboardFaenaFilter || f.id === dashboardFaenaFilter) : faenas);
+
+            const calculateScheduledPoints = (faenaId: string) => {
+              const points = faenaPointsMap[faenaId] || [];
+              if (points.length === 0) return { scheduled: 0, daily: 0, weekly: 0, specific: 0 };
+
+              let dailyCount = 0;
+              let weeklyCount = 0;
+              let specificCount = 0;
+
+              // Calculate days in timeframe
+              const today = new Date();
+              const fromDate = dashboardDateFrom ? new Date(dashboardDateFrom + "T00:00:00") : null;
+              const toDate = dashboardDateTo ? new Date(dashboardDateTo + "T23:59:59") : null;
+
+              const daysList: string[] = [];
+              const dayNames = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
+
+              if (fromDate && toDate) {
+                const cur = new Date(fromDate);
+                while (cur <= toDate) {
+                  daysList.push(dayNames[cur.getDay()]);
+                  cur.setDate(cur.getDate() + 1);
+                }
+              } else if (dashboardDatePreset === "today" || (!dashboardDateFrom && !dashboardDateTo)) {
+                // Today default
+                daysList.push(dayNames[today.getDay()]);
+              } else {
+                // Approximate 7 days
+                for (let i = 0; i < 7; i++) {
+                  const d = new Date();
+                  d.setDate(d.getDate() - i);
+                  daysList.push(dayNames[d.getDay()]);
+                }
+              }
+
+              let totalScheduled = 0;
+              points.forEach(pt => {
+                const periodicity = pt.periodicidad || "diario";
+                if (periodicity === "diario") {
+                  dailyCount++;
+                  totalScheduled += daysList.length;
+                } else if (periodicity === "semanal") {
+                  weeklyCount++;
+                  const weeks = Math.max(1, Math.ceil(daysList.length / 7));
+                  totalScheduled += (pt.frecuencia_semanal || 1) * weeks;
+                } else if (periodicity === "dias_especificos") {
+                  specificCount++;
+                  const days = pt.dias_semana || [];
+                  const matches = daysList.filter(d => days.includes(d)).length;
+                  totalScheduled += matches;
+                }
+              });
+
+              return {
+                scheduled: Math.max(totalScheduled, 1),
+                daily: dailyCount,
+                weekly: weeklyCount,
+                specific: specificCount,
+                totalConfigured: points.length,
+              };
+            };
+
+            let globalScheduledPoints = 0;
+            activeFaenasList.forEach(f => {
+              const sched = calculateScheduledPoints(f.id);
+              globalScheduledPoints += sched.scheduled;
+            });
 
             const faenaStats = activeFaenasList.map(faena => {
               const fRoutes = filteredDashboardRoutes.filter(r => r.faena_id === faena.id || r.faena_name === faena.nombre);
@@ -4264,6 +4375,9 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
               });
               const fIncompletePts = Math.max(0, fTotalPts - fCompletedPts);
               const fCompliance = fTotalPts > 0 ? Math.round((fCompletedPts / fTotalPts) * 100) : (fRoutes.length > 0 ? 100 : 0);
+              const schedInfo = calculateScheduledPoints(faena.id);
+              const scheduledCompliance = schedInfo.scheduled > 0 ? Math.min(100, Math.round((fCompletedPts / schedInfo.scheduled) * 100)) : 0;
+
               return {
                 faena,
                 routesCount: fRoutes.length,
@@ -4271,6 +4385,8 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                 completedPoints: fCompletedPts,
                 incompletePoints: fIncompletePts,
                 compliance: fCompliance,
+                scheduledInfo: schedInfo,
+                scheduledCompliance: scheduledCompliance,
                 routes: fRoutes
               };
             });
@@ -4563,7 +4679,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {faenaStats.map(({ faena, routesCount, totalPoints, completedPoints, incompletePoints, compliance }) => (
+                      {faenaStats.map(({ faena, routesCount, totalPoints, completedPoints, incompletePoints, compliance, scheduledInfo, scheduledCompliance }) => (
                         <div
                           key={faena.id}
                           className="bg-slate-50/60 rounded-xl border border-slate-200 p-4 space-y-3 hover:border-blue-300 transition-all shadow-xs"
@@ -4581,8 +4697,28 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                                   : 'bg-red-100 text-red-800'
                               }`}
                             >
-                              {compliance}%
+                              {compliance}% Realizado
                             </span>
+                          </div>
+
+                          {/* Periodicity Breakdown Badge */}
+                          <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                            <span className="font-semibold text-slate-400">Plan ({scheduledInfo?.totalConfigured || 0} pts):</span>
+                            {(scheduledInfo?.daily || 0) > 0 && (
+                              <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold border border-blue-200">
+                                {scheduledInfo?.daily} Diarios
+                              </span>
+                            )}
+                            {(scheduledInfo?.weekly || 0) > 0 && (
+                              <span className="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-bold border border-purple-200">
+                                {scheduledInfo?.weekly} Semanal
+                              </span>
+                            )}
+                            {(scheduledInfo?.specific || 0) > 0 && (
+                              <span className="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-bold border border-emerald-200">
+                                {scheduledInfo?.specific} Días Esp.
+                              </span>
+                            )}
                           </div>
 
                           {/* Progress Bar */}
@@ -4600,7 +4736,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                               )}
                             </div>
                             <div className="flex justify-between text-[11px] text-slate-500 font-medium">
-                              <span>Progreso de puntos</span>
+                              <span>Progreso en rutas</span>
                               <span>{completedPoints} de {totalPoints} listos</span>
                             </div>
                           </div>
@@ -6283,6 +6419,112 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                     }))
                   }
                 />
+              </div>
+
+              {/* Periodicidad de Visita / Servicio */}
+              <div className="space-y-3 pt-3 border-t border-slate-150">
+                <label className="block text-xs font-bold text-slate-700 uppercase">
+                  Periodicidad de Visita / Servicio *
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPointFormData({
+                        ...pointFormData,
+                        periodicidad: "diario",
+                        dias_semana: ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"],
+                      })
+                    }
+                    className={`py-2 px-2 rounded-lg text-xs font-bold border transition-colors cursor-pointer text-center ${
+                      pointFormData.periodicidad === "diario"
+                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    📅 Diario (7/7)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPointFormData({
+                        ...pointFormData,
+                        periodicidad: "semanal",
+                        frecuencia_semanal: 1,
+                      })
+                    }
+                    className={`py-2 px-2 rounded-lg text-xs font-bold border transition-colors cursor-pointer text-center ${
+                      pointFormData.periodicidad === "semanal"
+                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    📆 Semanal (1x)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPointFormData({
+                        ...pointFormData,
+                        periodicidad: "dias_especificos",
+                        dias_semana: pointFormData.dias_semana.length > 0 ? pointFormData.dias_semana : ["lunes", "miercoles", "viernes"],
+                      })
+                    }
+                    className={`py-2 px-2 rounded-lg text-xs font-bold border transition-colors cursor-pointer text-center ${
+                      pointFormData.periodicidad === "dias_especificos"
+                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    🗓️ Días Específicos
+                  </button>
+                </div>
+
+                {/* Sub-selector if Días Específicos */}
+                {pointFormData.periodicidad === "dias_especificos" && (
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                    <span className="text-[11px] font-bold text-slate-600 uppercase block">
+                      Selecciona los días programados:
+                    </span>
+                    <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                      {[
+                        { id: "lunes", label: "Lun" },
+                        { id: "martes", label: "Mar" },
+                        { id: "miercoles", label: "Mié" },
+                        { id: "jueves", label: "Jue" },
+                        { id: "viernes", label: "Vie" },
+                        { id: "sabado", label: "Sáb" },
+                        { id: "domingo", label: "Dom" },
+                      ].map((day) => {
+                        const isSelected = pointFormData.dias_semana.includes(day.id);
+                        return (
+                          <button
+                            key={day.id}
+                            type="button"
+                            onClick={() => {
+                              const newDays = isSelected
+                                ? pointFormData.dias_semana.filter((d) => d !== day.id)
+                                : [...pointFormData.dias_semana, day.id];
+                              setPointFormData({ ...pointFormData, dias_semana: newDays });
+                            }}
+                            className={`py-1.5 px-2 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                              isSelected
+                                ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
+                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            {day.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {pointFormData.dias_semana.length === 0 && (
+                      <p className="text-[10px] text-red-500 font-semibold">
+                        Debes seleccionar al menos un día de la semana.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
