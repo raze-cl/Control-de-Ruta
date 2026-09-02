@@ -104,6 +104,9 @@ interface Faena {
   nombre: string;
   fecha_inicio_contrato: string;
   fecha_fin_contrato: string;
+  latitud_inicio?: number;
+  longitud_inicio?: number;
+  direccion_inicio?: string;
   created_at?: string;
 }
 
@@ -296,6 +299,9 @@ export default function HomePage() {
     nombre: "",
     fecha_inicio_contrato: new Date().toISOString().substring(0, 10),
     fecha_fin_contrato: new Date(new Date().setFullYear(new Date().getFullYear() + 3)).toISOString().substring(0, 10),
+    latitud_inicio: -22.4542,
+    longitud_inicio: -68.9294,
+    direccion_inicio: "Acceso / Garita Principal",
   });
   const [faenaFormError, setFaenaFormError] = useState("");
   const [savingFaenaForm, setSavingFaenaForm] = useState(false);
@@ -1446,6 +1452,9 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
       nombre: "",
       fecha_inicio_contrato: new Date().toISOString().substring(0, 10),
       fecha_fin_contrato: new Date(new Date().setFullYear(new Date().getFullYear() + 3)).toISOString().substring(0, 10),
+      latitud_inicio: -22.4542,
+      longitud_inicio: -68.9294,
+      direccion_inicio: "Acceso / Garita Principal",
     });
     setFaenaFormError("");
     setIsFaenaCreateModalOpen(true);
@@ -1458,6 +1467,9 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
       nombre: faena.nombre,
       fecha_inicio_contrato: faena.fecha_inicio_contrato,
       fecha_fin_contrato: faena.fecha_fin_contrato,
+      latitud_inicio: faena.latitud_inicio ?? -22.4542,
+      longitud_inicio: faena.longitud_inicio ?? -68.9294,
+      direccion_inicio: faena.direccion_inicio || "Acceso / Garita Principal",
     });
     setFaenaFormError("");
     setIsFaenaEditModalOpen(true);
@@ -1732,7 +1744,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
     setFaenaFormError("");
 
     if (!faenaFormData.nombre || !faenaFormData.fecha_inicio_contrato || !faenaFormData.fecha_fin_contrato) {
-      setFaenaFormError("Por favor completa todos los campos.");
+      setFaenaFormError("Por favor completa todos los campos obligatorios.");
       return;
     }
 
@@ -1745,6 +1757,9 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
             nombre: faenaFormData.nombre.trim(),
             fecha_inicio_contrato: faenaFormData.fecha_inicio_contrato,
             fecha_fin_contrato: faenaFormData.fecha_fin_contrato,
+            latitud_inicio: faenaFormData.latitud_inicio,
+            longitud_inicio: faenaFormData.longitud_inicio,
+            direccion_inicio: faenaFormData.direccion_inicio.trim() || "Acceso / Garita Principal",
           },
         ]);
 
@@ -1786,6 +1801,9 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
           nombre: faenaFormData.nombre.trim(),
           fecha_inicio_contrato: faenaFormData.fecha_inicio_contrato,
           fecha_fin_contrato: faenaFormData.fecha_fin_contrato,
+          latitud_inicio: faenaFormData.latitud_inicio,
+          longitud_inicio: faenaFormData.longitud_inicio,
+          direccion_inicio: faenaFormData.direccion_inicio.trim() || "Acceso / Garita Principal",
         })
         .eq("id", selectedFaena.id);
 
@@ -3238,6 +3256,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                         <tr>
                           <th className="px-6 py-4 w-10"></th>
                           <th className="px-6 py-4">Nombre Faena</th>
+                          <th className="px-6 py-4">Punto Inicio / Fin de Ruta</th>
                           <th className="px-6 py-4">Códigos QR de Acceso</th>
                           <th className="px-6 py-4">Inicio Contrato</th>
                           <th className="px-6 py-4">Fin Contrato</th>
@@ -3260,6 +3279,36 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                                   {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                                 </td>
                                 <td className="px-6 py-4 font-bold text-slate-800">{faena.nombre}</td>
+                                <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex flex-col gap-1">
+                                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                                      <MapPin className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                      <span className="truncate max-w-[170px]">{faena.direccion_inicio || "Garita / Acceso Principal"}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[10px] text-slate-500 font-mono font-medium">
+                                        {(faena.latitud_inicio ?? -22.4542).toFixed(4)}, {(faena.longitud_inicio ?? -68.9294).toFixed(4)}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedPointForMap({
+                                            id: faena.id,
+                                            faena_id: faena.id,
+                                            codigo: `Inicio/Fin: ${faena.nombre} (${faena.direccion_inicio || "Acceso"})`,
+                                            latitude: faena.latitud_inicio ?? -22.4542,
+                                            longitude: faena.longitud_inicio ?? -68.9294,
+                                          });
+                                          setIsPointMapModalOpen(true);
+                                        }}
+                                        className="text-blue-600 hover:text-blue-800 p-0.5 rounded hover:bg-blue-50 transition-colors"
+                                        title="Ver ubicación en mapa interactivo"
+                                      >
+                                        <Map className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                </td>
                                 <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
                                   <div className="flex items-center gap-2">
                                     <button
@@ -3319,7 +3368,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                               {/* Expanded Row Content (Faena Points / Route) */}
                               {isExpanded && (
                                 <tr className="bg-slate-50/40 border-l-4 border-l-blue-500">
-                                  <td colSpan={6} className="px-10 py-6 border-b border-slate-200">
+                                  <td colSpan={7} className="px-10 py-6 border-b border-slate-200">
                                     {loadingFaenaPoints[faena.id] ? (
                                       <div className="flex items-center gap-2 text-sm text-slate-500">
                                         <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-500"></div>
@@ -5826,6 +5875,63 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                 </div>
               </div>
 
+              {/* Punto Geográfico de Inicio / Término de Ruta */}
+              <div className="space-y-3 pt-3 border-t border-slate-150">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 uppercase">
+                  <MapPin className="h-4 w-4 text-emerald-600" />
+                  <span>Punto Geográfico de Inicio / Final de Ruta</span>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre o Referencia del Acceso</label>
+                  <input
+                    type="text"
+                    value={faenaFormData.direccion_inicio}
+                    onChange={(e) => setFaenaFormData({ ...faenaFormData, direccion_inicio: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Ej: Garita Principal / Acceso Km 12"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Latitud GPS *</label>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      required
+                      value={faenaFormData.latitud_inicio}
+                      onChange={(e) => setFaenaFormData({ ...faenaFormData, latitud_inicio: Number(e.target.value) })}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none font-mono"
+                      placeholder="-22.4542"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Longitud GPS *</label>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      required
+                      value={faenaFormData.longitud_inicio}
+                      onChange={(e) => setFaenaFormData({ ...faenaFormData, longitud_inicio: Number(e.target.value) })}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none font-mono"
+                      placeholder="-68.9294"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <LocationPickerMap
+                    latitude={faenaFormData.latitud_inicio}
+                    longitude={faenaFormData.longitud_inicio}
+                    onChange={(lat, lng) =>
+                      setFaenaFormData((prev) => ({
+                        ...prev,
+                        latitud_inicio: lat,
+                        longitud_inicio: lng,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                 <button
                   type="button"
@@ -5899,6 +6005,63 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                     value={faenaFormData.fecha_fin_contrato}
                     onChange={(e) => setFaenaFormData({ ...faenaFormData, fecha_fin_contrato: e.target.value })}
                     className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Punto Geográfico de Inicio / Término de Ruta */}
+              <div className="space-y-3 pt-3 border-t border-slate-150">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 uppercase">
+                  <MapPin className="h-4 w-4 text-emerald-600" />
+                  <span>Punto Geográfico de Inicio / Final de Ruta</span>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre o Referencia del Acceso</label>
+                  <input
+                    type="text"
+                    value={faenaFormData.direccion_inicio}
+                    onChange={(e) => setFaenaFormData({ ...faenaFormData, direccion_inicio: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Ej: Garita Principal / Acceso Km 12"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Latitud GPS *</label>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      required
+                      value={faenaFormData.latitud_inicio}
+                      onChange={(e) => setFaenaFormData({ ...faenaFormData, latitud_inicio: Number(e.target.value) })}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none font-mono"
+                      placeholder="-22.4542"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Longitud GPS *</label>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      required
+                      value={faenaFormData.longitud_inicio}
+                      onChange={(e) => setFaenaFormData({ ...faenaFormData, longitud_inicio: Number(e.target.value) })}
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none font-mono"
+                      placeholder="-68.9294"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <LocationPickerMap
+                    latitude={faenaFormData.latitud_inicio}
+                    longitude={faenaFormData.longitud_inicio}
+                    onChange={(lat, lng) =>
+                      setFaenaFormData((prev) => ({
+                        ...prev,
+                        latitud_inicio: lat,
+                        longitud_inicio: lng,
+                      }))
+                    }
                   />
                 </div>
               </div>
