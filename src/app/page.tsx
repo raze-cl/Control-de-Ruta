@@ -138,6 +138,7 @@ interface RoutePointDetail {
   observaciones?: string;
   foto_inicio_url?: string | null;
   foto_termino_url?: string | null;
+  foto_evidencia_url?: string | null;
   latitud_checkin?: number | null;
   longitud_checkin?: number | null;
   inconsistente?: boolean;
@@ -596,7 +597,7 @@ export default function HomePage() {
         supabase.from("faenas").select("id, nombre"),
         supabase.from("faena_points").select("*"),
         supabase.from("point_checkins").select("*"),
-        supabase.from("app_notifications").select("tipo, created_at, driver_rut, faena_name, vehicle_code, motivo, details")
+        supabase.from("app_notifications").select("*")
       ]);
 
       if (usersRes.error) console.error("fetchRouteRecords app_users error:", usersRes.error);
@@ -715,9 +716,22 @@ export default function HomePage() {
         // Filter points for this faena
         const faenaPointsList = allPoints?.filter(p => p.faena_id === start.faena_id) || [];
         
-        // Map points to RoutePointDetail with full checkin details
+        // Map points to RoutePointDetail with full checkin details & evidence lookup
         const puntosDetalle: RoutePointDetail[] = faenaPointsList.map(pt => {
           const checkin = checkins.find(c => c.point_id === pt.id);
+          const isProblem = checkin?.estado_punto === 'No Realizado / Con Problema';
+          
+          let fotoEvidencia = checkin?.foto_evidencia_url || checkin?.foto_inicio_url || checkin?.foto_termino_url || null;
+          if (isProblem && !fotoEvidencia) {
+            const notif = allNotifications.find(n => 
+              n.tipo === 'punto_con_problema' && 
+              ((n.details?.pointId === pt.id) || (n.details?.pointCodigo === pt.codigo) || (n.vehicle_code === start.vehicle_code && n.faena_name === faenaName))
+            );
+            if (notif?.evidencia_url) {
+              fotoEvidencia = notif.evidencia_url;
+            }
+          }
+
           return {
             id: pt.id,
             codigo: pt.codigo || "Sin Código",
@@ -732,6 +746,7 @@ export default function HomePage() {
             observaciones: checkin?.observaciones,
             foto_inicio_url: checkin?.foto_inicio_url,
             foto_termino_url: checkin?.foto_termino_url,
+            foto_evidencia_url: fotoEvidencia,
             latitud_checkin: checkin?.latitud ?? pt.latitude,
             longitud_checkin: checkin?.longitud ?? pt.longitude,
             inconsistente: checkin?.inconsistente,
@@ -4095,17 +4110,33 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                                       ? "bg-red-100 text-red-800"
                                       : n.tipo === "termino_anticipado"
                                       ? "bg-orange-100 text-orange-800"
-                                      : "bg-amber-100 text-amber-800"
+                                      : n.tipo === "punto_con_problema"
+                                      ? "bg-amber-100 text-amber-900 border border-amber-200"
+                                      : "bg-slate-100 text-slate-700"
                                   }`}>
                                     {n.tipo === "checklist_fallido"
                                       ? "Checklist Falla"
                                       : n.tipo === "termino_anticipado"
                                       ? "Término Ruta"
-                                      : "Doc. Vencido"}
+                                      : n.tipo === "punto_con_problema"
+                                      ? "Problema en Punto"
+                                      : "Alerta"}
                                   </span>
                                 </div>
-                                <h4 className="font-bold text-slate-800 text-sm truncate">{n.driver_name}</h4>
-                                <p className="text-xs text-slate-500 truncate">RUT: {n.driver_rut}</p>
+                                <h4 className="font-bold text-slate-800 text-sm truncate">
+                                  {n.tipo === "punto_con_problema"
+                                    ? `⚠️ ${n.details?.pointCodigo || n.details?.punto || n.motivo || 'Problema en punto'}`
+                                    : n.driver_name}
+                                </h4>
+                                <div className="flex items-center justify-between text-xs text-slate-500 mt-0.5">
+                                  <span className="truncate">{n.driver_name}</span>
+                                  <span className="font-mono text-[10px] text-slate-400">{n.vehicle_code}</span>
+                                </div>
+                                {n.faena_name && (
+                                  <span className="text-[10px] text-slate-400 block truncate mt-0.5">
+                                    Faena: {n.faena_name}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           );
@@ -4126,13 +4157,17 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                                 ? "bg-red-100 text-red-800"
                                 : selectedNotification.tipo === "termino_anticipado"
                                 ? "bg-orange-100 text-orange-800"
-                                : "bg-amber-100 text-amber-800"
+                                : selectedNotification.tipo === "punto_con_problema"
+                                ? "bg-amber-100 text-amber-900 border border-amber-200"
+                                : "bg-slate-100 text-slate-800"
                             }`}>
                               {selectedNotification.tipo === "checklist_fallido"
                                 ? "Checklist Rechazado"
                                 : selectedNotification.tipo === "termino_anticipado"
                                 ? "Término Anticipado de Ruta"
-                                : "Alerta de Documentos Vencidos"}
+                                : selectedNotification.tipo === "punto_con_problema"
+                                ? "Reporte de Problema en Punto de Control"
+                                : "Alerta General"}
                             </span>
                             <span className="text-xs text-slate-500 font-medium">
                               {new Date(selectedNotification.created_at).toLocaleString('es-CL')}
@@ -4282,7 +4317,86 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                         </div>
                       )}
 
-                      {selectedNotification.tipo !== "checklist_fallido" && selectedNotification.tipo !== "termino_anticipado" && (
+                      {selectedNotification.tipo === "punto_con_problema" && (
+                        <div className="border border-amber-200 bg-amber-50/20 rounded-xl p-5 space-y-4 text-left">
+                          {/* Punto afectado y Motivo */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="bg-white p-3.5 rounded-lg border border-amber-200/70 shadow-xs">
+                              <span className="text-[10px] font-bold text-amber-800 uppercase block mb-1">
+                                Punto de Control Afectado
+                              </span>
+                              <span className="text-base font-bold text-slate-850">
+                                {selectedNotification.details?.pointCodigo || selectedNotification.details?.punto || 'Punto de Faena'}
+                              </span>
+                              <span className="text-xs text-slate-500 block mt-0.5">
+                                Faena: {selectedNotification.faena_name} • Vehículo: {selectedNotification.vehicle_code}
+                              </span>
+                            </div>
+
+                            <div className="bg-white p-3.5 rounded-lg border border-amber-200/70 shadow-xs">
+                              <span className="text-[10px] font-bold text-amber-800 uppercase block mb-1">
+                                Motivo / Inconveniente Reportado
+                              </span>
+                              <span className="text-sm font-bold text-amber-900 flex items-center gap-1.5 mt-1">
+                                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                                {selectedNotification.motivo || 'No especificado'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Observaciones del Operador */}
+                          <div>
+                            <span className="text-[10px] font-bold text-amber-900 uppercase block mb-1">
+                              Observaciones Registradas por el Operador
+                            </span>
+                            <div className="text-sm text-slate-700 bg-white p-3.5 rounded-lg border border-slate-200 whitespace-pre-line leading-relaxed shadow-xs">
+                              {selectedNotification.observaciones && selectedNotification.observaciones.trim().length > 0
+                                ? selectedNotification.observaciones
+                                : 'Sin observaciones adicionales registradas.'}
+                            </div>
+                          </div>
+
+                          {/* Evidencia Fotográfica */}
+                          <div>
+                            <span className="text-[10px] font-bold text-amber-900 uppercase block mb-2">
+                              Evidencia Fotográfica del Inconveniente
+                            </span>
+                            {selectedNotification.evidencia_url ? (
+                              <div className="space-y-2">
+                                <a
+                                  href={selectedNotification.evidencia_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-block group border border-slate-200 rounded-xl overflow-hidden shadow-sm bg-white hover:border-blue-400 transition-colors"
+                                >
+                                  <img
+                                    src={selectedNotification.evidencia_url}
+                                    alt="Evidencia fotográfica del problema"
+                                    className="max-h-72 object-cover rounded-lg group-hover:opacity-95 transition-opacity"
+                                  />
+                                </a>
+                                <div>
+                                  <a
+                                    href={selectedNotification.evidencia_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline"
+                                  >
+                                    Abrir imagen en tamaño completo <ExternalLink className="h-3 w-3" />
+                                  </a>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="p-4 bg-white rounded-lg border border-dashed border-slate-300 text-slate-400 text-xs flex items-center gap-2">
+                                <Camera className="h-4 w-4 text-slate-300" />
+                                <span>No se adjuntó fotografía de evidencia en este reporte.</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedNotification.tipo !== "checklist_fallido" && selectedNotification.tipo !== "termino_anticipado" && selectedNotification.tipo !== "punto_con_problema" && (
                         <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
                           <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Detalles Adicionales</span>
                           <p className="text-sm text-slate-700 whitespace-pre-line">
@@ -7590,76 +7704,123 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                   </div>
                 </div>
 
-                {/* Evidencias Fotográficas: Inicio y Término */}
-                <div className="space-y-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                    <Camera className="h-3.5 w-3.5 text-purple-600" />
-                    Evidencias Fotográficas de Atención
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Foto Inicio */}
-                    <div className="bg-white rounded-xl border border-slate-200 p-3 space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-slate-700">Foto Inicio de Servicio</span>
-                        {point.foto_inicio_url && (
+                {/* Evidencias Fotográficas: Modo Problema vs Modo Servicio Normal */}
+                {isProblem ? (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-orange-800 flex items-center gap-1.5">
+                      <Camera className="h-3.5 w-3.5 text-orange-600" />
+                      Fotografía de Evidencia del Problema / Novedad
+                    </h4>
+                    <div className="bg-white rounded-xl border border-orange-200 p-4 space-y-3 shadow-xs">
+                      {(point.foto_evidencia_url || point.foto_inicio_url || point.foto_termino_url) ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-bold text-orange-900 flex items-center gap-1.5">
+                              <AlertTriangle className="h-3.5 w-3.5 text-orange-600" />
+                              Evidencia capturada en terreno
+                            </span>
+                            <a
+                              href={(point.foto_evidencia_url || point.foto_inicio_url || point.foto_termino_url)!}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
+                            >
+                              Ver en tamaño original <ExternalLink className="h-3 w-3" />
+                            </a>
+                          </div>
                           <a
-                            href={point.foto_inicio_url}
+                            href={(point.foto_evidencia_url || point.foto_inicio_url || point.foto_termino_url)!}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-0.5"
+                            className="block group"
                           >
-                            Abrir <ExternalLink className="h-2.5 w-2.5" />
+                            <img
+                              src={(point.foto_evidencia_url || point.foto_inicio_url || point.foto_termino_url)!}
+                              alt="Evidencia fotográfica del problema"
+                              className="w-full max-h-80 object-contain bg-slate-900/5 rounded-lg border border-slate-200 group-hover:opacity-95 transition-opacity"
+                            />
                           </a>
-                        )}
-                      </div>
-                      {point.foto_inicio_url ? (
-                        <a href={point.foto_inicio_url} target="_blank" rel="noopener noreferrer" className="block group">
-                          <img
-                            src={point.foto_inicio_url}
-                            alt="Foto Inicio de Servicio"
-                            className="w-full h-48 object-cover rounded-lg border border-slate-200 group-hover:opacity-90 transition-opacity"
-                          />
-                        </a>
-                      ) : (
-                        <div className="h-48 rounded-lg border border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 bg-slate-50 text-xs p-4 text-center">
-                          <Camera className="h-8 w-8 text-slate-300 mb-1" />
-                          <span>Sin fotografía de inicio</span>
                         </div>
-                      )}
-                    </div>
-
-                    {/* Foto Término */}
-                    <div className="bg-white rounded-xl border border-slate-200 p-3 space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-slate-700">Foto Término de Servicio</span>
-                        {point.foto_termino_url && (
-                          <a
-                            href={point.foto_termino_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-0.5"
-                          >
-                            Abrir <ExternalLink className="h-2.5 w-2.5" />
-                          </a>
-                        )}
-                      </div>
-                      {point.foto_termino_url ? (
-                        <a href={point.foto_termino_url} target="_blank" rel="noopener noreferrer" className="block group">
-                          <img
-                            src={point.foto_termino_url}
-                            alt="Foto Término de Servicio"
-                            className="w-full h-48 object-cover rounded-lg border border-slate-200 group-hover:opacity-90 transition-opacity"
-                          />
-                        </a>
                       ) : (
-                        <div className="h-48 rounded-lg border border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 bg-slate-50 text-xs p-4 text-center">
-                          <Camera className="h-8 w-8 text-slate-300 mb-1" />
-                          <span>Sin fotografía de término</span>
+                        <div className="py-8 rounded-lg border border-dashed border-orange-300 bg-orange-50/40 flex flex-col items-center justify-center text-orange-800 text-xs text-center p-4">
+                          <Camera className="h-10 w-10 text-orange-400 mb-2" />
+                          <strong className="text-sm">Sin fotografía de evidencia adjunta</strong>
+                          <span className="text-slate-500 mt-1">El operador no adjuntó fotografía al registrar el inconveniente en terreno.</span>
                         </div>
                       )}
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <Camera className="h-3.5 w-3.5 text-purple-600" />
+                      Evidencias Fotográficas de Atención
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Foto Inicio */}
+                      <div className="bg-white rounded-xl border border-slate-200 p-3 space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-slate-700">Foto Inicio de Servicio</span>
+                          {point.foto_inicio_url && (
+                            <a
+                              href={point.foto_inicio_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-0.5"
+                            >
+                              Abrir <ExternalLink className="h-2.5 w-2.5" />
+                            </a>
+                          )}
+                        </div>
+                        {point.foto_inicio_url ? (
+                          <a href={point.foto_inicio_url} target="_blank" rel="noopener noreferrer" className="block group">
+                            <img
+                              src={point.foto_inicio_url}
+                              alt="Foto Inicio de Servicio"
+                              className="w-full h-48 object-cover rounded-lg border border-slate-200 group-hover:opacity-90 transition-opacity"
+                            />
+                          </a>
+                        ) : (
+                          <div className="h-48 rounded-lg border border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 bg-slate-50 text-xs p-4 text-center">
+                            <Camera className="h-8 w-8 text-slate-300 mb-1" />
+                            <span>Sin fotografía de inicio</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Foto Término */}
+                      <div className="bg-white rounded-xl border border-slate-200 p-3 space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-slate-700">Foto Término de Servicio</span>
+                          {point.foto_termino_url && (
+                            <a
+                              href={point.foto_termino_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-0.5"
+                            >
+                              Abrir <ExternalLink className="h-2.5 w-2.5" />
+                            </a>
+                          )}
+                        </div>
+                        {point.foto_termino_url ? (
+                          <a href={point.foto_termino_url} target="_blank" rel="noopener noreferrer" className="block group">
+                            <img
+                              src={point.foto_termino_url}
+                              alt="Foto Término de Servicio"
+                              className="w-full h-48 object-cover rounded-lg border border-slate-200 group-hover:opacity-90 transition-opacity"
+                            />
+                          </a>
+                        ) : (
+                          <div className="h-48 rounded-lg border border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 bg-slate-50 text-xs p-4 text-center">
+                            <Camera className="h-8 w-8 text-slate-300 mb-1" />
+                            <span>Sin fotografía de término</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Ubicación GPS del Punto con Mapa */}
                 <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
