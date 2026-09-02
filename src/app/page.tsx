@@ -578,7 +578,7 @@ export default function HomePage() {
       ] = await Promise.all([
         supabase.from("app_users").select("id, nombre, rut"),
         supabase.from("faenas").select("id, nombre"),
-        supabase.from("faena_points").select("id, faena_id, codigo, latitude, longitude"),
+        supabase.from("faena_points").select("*"),
         supabase.from("point_checkins").select("point_id, route_start_id, created_at"),
         supabase.from("app_notifications").select("tipo, created_at, driver_rut, faena_name, vehicle_code, motivo, details")
       ]);
@@ -594,6 +594,16 @@ export default function HomePage() {
       const allPoints = pointsRes.data || [];
       const allCheckins = checkinsRes.data || [];
       const allNotifications = notificationsRes.data || [];
+
+      // Ensure faenaPointsMap is populated with all points including periodicity
+      if (allPoints.length > 0) {
+        const pMap: Record<string, FaenaPoint[]> = {};
+        allPoints.forEach((pt: any) => {
+          if (!pMap[pt.faena_id]) pMap[pt.faena_id] = [];
+          pMap[pt.faena_id].push(pt);
+        });
+        setFaenaPointsMap(prev => ({ ...prev, ...pMap }));
+      }
 
       const userMap: Record<string, any> = {};
       allUsers.forEach(u => {
@@ -4264,7 +4274,91 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
           )}
 
           {activeTab === "dashboard" && (() => {
-            // 1. Filter routes according to active dashboard filters
+            // 1. Helper function to normalize day names (removes accents and casing)
+            const normalizeDayName = (day: string): string => {
+              return (day || "")
+                .toLowerCase()
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .trim();
+            };
+
+            const dayNames = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
+
+            // 2. Generate the distinct list of days in the evaluated period
+            const getPeriodDays = () => {
+              const days: { dateStr: string; dayIndex: number; dayName: string }[] = [];
+              const today = new Date();
+              let start: Date;
+              let end: Date;
+
+              if (dashboardDateFrom && dashboardDateTo) {
+                const [sY, sM, sD] = dashboardDateFrom.split("-").map(Number);
+                const [eY, eM, eD] = dashboardDateTo.split("-").map(Number);
+                start = new Date(sY, sM - 1, sD);
+                end = new Date(eY, eM - 1, eD);
+              } else if (dashboardDateFrom) {
+                const [sY, sM, sD] = dashboardDateFrom.split("-").map(Number);
+                start = new Date(sY, sM - 1, sD);
+                end = new Date(today);
+              } else if (dashboardDatePreset === "today") {
+                start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+              } else if (dashboardDatePreset === "week") {
+                const day = today.getDay();
+                const diffToMon = (day === 0 ? -6 : 1) - day;
+                const monday = new Date(today);
+                monday.setDate(today.getDate() + diffToMon);
+                start = monday;
+                const sunday = new Date(monday);
+                sunday.setDate(monday.getDate() + 6);
+                end = sunday;
+              } else if (dashboardDatePreset === "7days") {
+                start = new Date(today);
+                start.setDate(today.getDate() - 6);
+                end = new Date(today);
+              } else if (dashboardDatePreset === "month") {
+                start = new Date(today.getFullYear(), today.getMonth(), 1);
+                end = new Date(today);
+              } else {
+                // "all": Default to current week or earliest route up to today
+                if (routeRecords.length > 0) {
+                  const sorted = routeRecords.map(r => r.fecha_inicio).filter(Boolean).sort();
+                  if (sorted.length > 0) {
+                    const [fY, fM, fD] = sorted[0].split("-").map(Number);
+                    start = new Date(fY, fM - 1, fD);
+                    end = new Date(today);
+                  } else {
+                    start = new Date(today);
+                    start.setDate(today.getDate() - 6);
+                    end = new Date(today);
+                  }
+                } else {
+                  start = new Date(today);
+                  start.setDate(today.getDate() - 6);
+                  end = new Date(today);
+                }
+              }
+
+              const cur = new Date(start);
+              while (cur <= end) {
+                const y = cur.getFullYear();
+                const m = String(cur.getMonth() + 1).padStart(2, "0");
+                const d = String(cur.getDate()).padStart(2, "0");
+                const dayIdx = cur.getDay();
+                days.push({
+                  dateStr: `${y}-${m}-${d}`,
+                  dayIndex: dayIdx,
+                  dayName: dayNames[dayIdx],
+                });
+                cur.setDate(cur.getDate() + 1);
+              }
+              return days;
+            };
+
+            const periodDays = getPeriodDays();
+
+            // 3. Filter routes according to active dashboard filters
             const filteredDashboardRoutes = routeRecords.filter(r => {
               if (currentAdmin?.tipo_usuario === "cliente" && currentAdmin.faena_asignada) {
                 if (r.faena_name !== currentAdmin.faena_asignada) return false;
@@ -4276,131 +4370,123 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
               return true;
             });
 
-            // 2. Computed KPI Totals
+            // 4. Computed Route Status Totals
             const dashTotalRoutes = filteredDashboardRoutes.length;
             const dashCompletedRoutes = filteredDashboardRoutes.filter(r => r.estado === 'Finalizada').length;
             const dashInProgressRoutes = filteredDashboardRoutes.filter(r => r.estado === 'En Proceso').length;
             const dashEarlyTermRoutes = filteredDashboardRoutes.filter(r => r.estado === 'Término Anticipado').length;
 
-            let dashTotalPoints = 0;
-            let dashCompletedPoints = 0;
-            filteredDashboardRoutes.forEach(r => {
-              const pts = r.puntos_detalle || [];
-              dashTotalPoints += pts.length;
-              dashCompletedPoints += pts.filter(p => p.completado).length;
-            });
-            const dashIncompletePoints = Math.max(0, dashTotalPoints - dashCompletedPoints);
-            const dashComplianceRate = dashTotalPoints > 0 ? Math.round((dashCompletedPoints / dashTotalPoints) * 100) : (dashTotalRoutes > 0 ? 100 : 0);
-
-            // 3. Estimate Scheduled Points based on Periodicity for the Filtered Timeframe
+            // 5. Active Faenas to Evaluate
             const activeFaenasList = currentAdmin?.tipo_usuario === "cliente" && currentAdmin.faena_asignada
               ? faenas.filter(f => f.nombre === currentAdmin.faena_asignada)
               : (dashboardFaenaFilter ? faenas.filter(f => f.nombre === dashboardFaenaFilter || f.id === dashboardFaenaFilter) : faenas);
 
-            const calculateScheduledPoints = (faenaId: string) => {
-              const points = faenaPointsMap[faenaId] || [];
-              if (points.length === 0) return { scheduled: 0, daily: 0, weekly: 0, specific: 0 };
+            // 6. Calculate Scheduled Points & Actual Completed Points per Faena according to Periodicity
+            const weeksInPeriod = Math.max(1, Math.ceil(periodDays.length / 7));
 
+            const faenaStats = activeFaenasList.map(faena => {
+              const fPoints = faenaPointsMap[faena.id] || [];
+              let fScheduledPoints = 0;
               let dailyCount = 0;
               let weeklyCount = 0;
               let specificCount = 0;
 
-              // Calculate days in timeframe
-              const today = new Date();
-              const fromDate = dashboardDateFrom ? new Date(dashboardDateFrom + "T00:00:00") : null;
-              const toDate = dashboardDateTo ? new Date(dashboardDateTo + "T23:59:59") : null;
-
-              const daysList: string[] = [];
-              const dayNames = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
-
-              if (fromDate && toDate) {
-                const cur = new Date(fromDate);
-                while (cur <= toDate) {
-                  daysList.push(dayNames[cur.getDay()]);
-                  cur.setDate(cur.getDate() + 1);
-                }
-              } else if (dashboardDatePreset === "today" || (!dashboardDateFrom && !dashboardDateTo)) {
-                // Today default
-                daysList.push(dayNames[today.getDay()]);
-              } else {
-                // Approximate 7 days
-                for (let i = 0; i < 7; i++) {
-                  const d = new Date();
-                  d.setDate(d.getDate() - i);
-                  daysList.push(dayNames[d.getDay()]);
-                }
-              }
-
-              let totalScheduled = 0;
-              points.forEach(pt => {
+              fPoints.forEach(pt => {
                 const periodicity = pt.periodicidad || "diario";
                 if (periodicity === "diario") {
                   dailyCount++;
-                  totalScheduled += daysList.length;
-                } else if (periodicity === "semanal") {
-                  weeklyCount++;
-                  const weeks = Math.max(1, Math.ceil(daysList.length / 7));
-                  totalScheduled += (pt.frecuencia_semanal || 1) * weeks;
+                  fScheduledPoints += periodDays.length;
                 } else if (periodicity === "dias_especificos") {
                   specificCount++;
-                  const days = pt.dias_semana || [];
-                  const matches = daysList.filter(d => days.includes(d)).length;
-                  totalScheduled += matches;
+                  const ptDays = (pt.dias_semana || []).map(normalizeDayName);
+                  const matches = periodDays.filter(pd => {
+                    const normDay = normalizeDayName(pd.dayName);
+                    return ptDays.some(d => d === normDay || normDay.startsWith(d) || d.startsWith(normDay));
+                  }).length;
+                  fScheduledPoints += matches;
+                } else if (periodicity === "semanal") {
+                  weeklyCount++;
+                  fScheduledPoints += (pt.frecuencia_semanal || 1) * weeksInPeriod;
                 }
               });
 
-              return {
-                scheduled: Math.max(totalScheduled, 1),
-                daily: dailyCount,
-                weekly: weeklyCount,
-                specific: specificCount,
-                totalConfigured: points.length,
-              };
-            };
-
-            let globalScheduledPoints = 0;
-            activeFaenasList.forEach(f => {
-              const sched = calculateScheduledPoints(f.id);
-              globalScheduledPoints += sched.scheduled;
-            });
-
-            const faenaStats = activeFaenasList.map(faena => {
+              // Completed points in actual route executions for this faena
               const fRoutes = filteredDashboardRoutes.filter(r => r.faena_id === faena.id || r.faena_name === faena.nombre);
-              let fTotalPts = 0;
-              let fCompletedPts = 0;
+              let fCompletedPoints = 0;
               fRoutes.forEach(r => {
                 const pts = r.puntos_detalle || [];
-                fTotalPts += pts.length;
-                fCompletedPts += pts.filter(p => p.completado).length;
+                fCompletedPoints += pts.filter(p => p.completado).length;
               });
-              const fIncompletePts = Math.max(0, fTotalPts - fCompletedPts);
-              const fCompliance = fTotalPts > 0 ? Math.round((fCompletedPts / fTotalPts) * 100) : (fRoutes.length > 0 ? 100 : 0);
-              const schedInfo = calculateScheduledPoints(faena.id);
-              const scheduledCompliance = schedInfo.scheduled > 0 ? Math.min(100, Math.round((fCompletedPts / schedInfo.scheduled) * 100)) : 0;
+
+              // Fallback: If no points configured in faenaPointsMap but routes were run, count route points
+              if (fScheduledPoints === 0 && fRoutes.length > 0) {
+                let sumPts = 0;
+                fRoutes.forEach(r => {
+                  sumPts += (r.puntos_detalle || []).length;
+                });
+                fScheduledPoints = sumPts;
+              }
+
+              // Compliance rate: (completed / scheduled) * 100
+              const fCompliance = fScheduledPoints > 0
+                ? Math.min(100, Math.round((fCompletedPoints / fScheduledPoints) * 100))
+                : (fCompletedPoints > 0 ? 100 : 0);
+
+              const fIncompletePoints = Math.max(0, fScheduledPoints - fCompletedPoints);
 
               return {
                 faena,
                 routesCount: fRoutes.length,
-                totalPoints: fTotalPts,
-                completedPoints: fCompletedPts,
-                incompletePoints: fIncompletePts,
+                scheduledPoints: fScheduledPoints,
+                completedPoints: fCompletedPoints,
+                incompletePoints: fIncompletePoints,
                 compliance: fCompliance,
-                scheduledInfo: schedInfo,
-                scheduledCompliance: scheduledCompliance,
-                routes: fRoutes
+                dailyCount,
+                weeklyCount,
+                specificCount,
+                totalConfigured: fPoints.length,
+                routes: fRoutes,
               };
             });
 
-            const applyDatePreset = (preset: "today" | "7days" | "month" | "all") => {
+            // 7. Global KPI Totals derived from Schedule
+            let dashTotalScheduledPoints = 0;
+            let dashCompletedPoints = 0;
+            let dashTotalConfiguredPoints = 0;
+
+            faenaStats.forEach(stat => {
+              dashTotalScheduledPoints += stat.scheduledPoints;
+              dashCompletedPoints += stat.completedPoints;
+              dashTotalConfiguredPoints += stat.totalConfigured;
+            });
+
+            const dashIncompletePoints = Math.max(0, dashTotalScheduledPoints - dashCompletedPoints);
+            const dashComplianceRate = dashTotalScheduledPoints > 0
+              ? Math.min(100, Math.round((dashCompletedPoints / dashTotalScheduledPoints) * 100))
+              : (dashCompletedPoints > 0 ? 100 : 0);
+
+            // 8. Preset Handlers
+            const applyDatePreset = (preset: "today" | "week" | "7days" | "month" | "all") => {
               setDashboardDatePreset(preset);
               const today = new Date();
               const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
               if (preset === "today") {
                 setDashboardDateFrom(todayStr);
                 setDashboardDateTo(todayStr);
+              } else if (preset === "week") {
+                const day = today.getDay();
+                const diffToMon = (day === 0 ? -6 : 1) - day;
+                const monday = new Date(today);
+                monday.setDate(today.getDate() + diffToMon);
+                const sunday = new Date(monday);
+                sunday.setDate(monday.getDate() + 6);
+                const monStr = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
+                const sunStr = `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, "0")}-${String(sunday.getDate()).padStart(2, "0")}`;
+                setDashboardDateFrom(monStr);
+                setDashboardDateTo(sunStr);
               } else if (preset === "7days") {
                 const past7 = new Date();
-                past7.setDate(past7.getDate() - 7);
+                past7.setDate(past7.getDate() - 6);
                 const past7Str = `${past7.getFullYear()}-${String(past7.getMonth() + 1).padStart(2, "0")}-${String(past7.getDate()).padStart(2, "0")}`;
                 setDashboardDateFrom(past7Str);
                 setDashboardDateTo(todayStr);
@@ -4486,7 +4572,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                       <div className="lg:col-span-2 flex flex-wrap items-center gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
                         <button
                           onClick={() => applyDatePreset("today")}
-                          className={`flex-1 min-w-[70px] py-1.5 px-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                          className={`flex-1 min-w-[55px] py-1.5 px-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
                             dashboardDatePreset === "today"
                               ? "bg-blue-600 text-white shadow-sm"
                               : "text-slate-600 hover:bg-slate-200"
@@ -4495,8 +4581,18 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                           Hoy
                         </button>
                         <button
+                          onClick={() => applyDatePreset("week")}
+                          className={`flex-1 min-w-[85px] py-1.5 px-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                            dashboardDatePreset === "week"
+                              ? "bg-blue-600 text-white shadow-sm"
+                              : "text-slate-600 hover:bg-slate-200"
+                          }`}
+                        >
+                          Esta Semana
+                        </button>
+                        <button
                           onClick={() => applyDatePreset("7days")}
-                          className={`flex-1 min-w-[90px] py-1.5 px-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                          className={`flex-1 min-w-[85px] py-1.5 px-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
                             dashboardDatePreset === "7days"
                               ? "bg-blue-600 text-white shadow-sm"
                               : "text-slate-600 hover:bg-slate-200"
@@ -4506,7 +4602,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                         </button>
                         <button
                           onClick={() => applyDatePreset("month")}
-                          className={`flex-1 min-w-[80px] py-1.5 px-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                          className={`flex-1 min-w-[75px] py-1.5 px-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
                             dashboardDatePreset === "month"
                               ? "bg-blue-600 text-white shadow-sm"
                               : "text-slate-600 hover:bg-slate-200"
@@ -4516,7 +4612,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                         </button>
                         <button
                           onClick={() => applyDatePreset("all")}
-                          className={`flex-1 min-w-[80px] py-1.5 px-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                          className={`flex-1 min-w-[65px] py-1.5 px-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
                             dashboardDatePreset === "all"
                               ? "bg-blue-600 text-white shadow-sm"
                               : "text-slate-600 hover:bg-slate-200"
@@ -4601,20 +4697,24 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                     </div>
                   </div>
 
-                  {/* Puntos Completados vs Incompletos */}
+                  {/* Puntos Completados vs Incompletos según Periodicidad */}
                   <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between">
                     <div>
-                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Puntos de Control</h3>
+                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Puntos Programados</h3>
                       <p className="text-2xl font-black text-slate-800 mt-2">
-                        <span className="text-emerald-600">{dashCompletedPoints}</span> / {dashTotalPoints}
+                        <span className="text-emerald-600">{dashCompletedPoints}</span> / {dashTotalScheduledPoints}
                       </p>
                       <div className="flex items-center gap-2 mt-2 text-xs font-bold">
                         <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-                          {dashCompletedPoints} listos
+                          {dashCompletedPoints} completados
                         </span>
-                        {dashIncompletePoints > 0 && (
+                        {dashIncompletePoints > 0 ? (
                           <span className="text-red-700 bg-red-50 px-1.5 py-0.5 rounded">
                             {dashIncompletePoints} pendientes
+                          </span>
+                        ) : (
+                          <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                            100% al día
                           </span>
                         )}
                       </div>
@@ -4679,7 +4779,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {faenaStats.map(({ faena, routesCount, totalPoints, completedPoints, incompletePoints, compliance, scheduledInfo, scheduledCompliance }) => (
+                      {faenaStats.map(({ faena, routesCount, scheduledPoints, completedPoints, incompletePoints, compliance, dailyCount, weeklyCount, specificCount, totalConfigured }) => (
                         <div
                           key={faena.id}
                           className="bg-slate-50/60 rounded-xl border border-slate-200 p-4 space-y-3 hover:border-blue-300 transition-all shadow-xs"
@@ -4697,26 +4797,26 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                                   : 'bg-red-100 text-red-800'
                               }`}
                             >
-                              {compliance}% Realizado
+                              {compliance}% Cumplimiento
                             </span>
                           </div>
 
                           {/* Periodicity Breakdown Badge */}
                           <div className="flex flex-wrap items-center gap-1 text-[10px]">
-                            <span className="font-semibold text-slate-400">Plan ({scheduledInfo?.totalConfigured || 0} pts):</span>
-                            {(scheduledInfo?.daily || 0) > 0 && (
+                            <span className="font-semibold text-slate-400">Plan ({totalConfigured} pts):</span>
+                            {dailyCount > 0 && (
                               <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold border border-blue-200">
-                                {scheduledInfo?.daily} Diarios
+                                {dailyCount} Diarios
                               </span>
                             )}
-                            {(scheduledInfo?.weekly || 0) > 0 && (
+                            {weeklyCount > 0 && (
                               <span className="bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-bold border border-purple-200">
-                                {scheduledInfo?.weekly} Semanal
+                                {weeklyCount} Semanal
                               </span>
                             )}
-                            {(scheduledInfo?.specific || 0) > 0 && (
+                            {specificCount > 0 && (
                               <span className="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-bold border border-emerald-200">
-                                {scheduledInfo?.specific} Días Esp.
+                                {specificCount} Días Esp.
                               </span>
                             )}
                           </div>
@@ -4736,24 +4836,28 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                               )}
                             </div>
                             <div className="flex justify-between text-[11px] text-slate-500 font-medium">
-                              <span>Progreso en rutas</span>
-                              <span>{completedPoints} de {totalPoints} listos</span>
+                              <span>Progreso según periodicidad</span>
+                              <span>{completedPoints} de {scheduledPoints} programados</span>
                             </div>
                           </div>
 
-                          {/* Stat Grid */}
-                          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200/60 text-center">
+                          {/* Stat Grid: 4 columns */}
+                          <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-slate-200/60 text-center">
                             <div className="bg-white p-2 rounded-lg border border-slate-150">
-                              <div className="text-[10px] uppercase font-bold text-slate-400">Rutas</div>
-                              <div className="text-xs font-black text-slate-700 mt-0.5">{routesCount}</div>
+                              <div className="text-[9px] uppercase font-bold text-slate-400">Prog.</div>
+                              <div className="text-xs font-black text-slate-800 mt-0.5">{scheduledPoints}</div>
                             </div>
                             <div className="bg-white p-2 rounded-lg border border-slate-150">
-                              <div className="text-[10px] uppercase font-bold text-emerald-600">Completados</div>
+                              <div className="text-[9px] uppercase font-bold text-emerald-600">Listos</div>
                               <div className="text-xs font-black text-emerald-700 mt-0.5">{completedPoints}</div>
                             </div>
                             <div className="bg-white p-2 rounded-lg border border-slate-150">
-                              <div className="text-[10px] uppercase font-bold text-red-500">Pendientes</div>
+                              <div className="text-[9px] uppercase font-bold text-red-500">Pend.</div>
                               <div className="text-xs font-black text-red-600 mt-0.5">{incompletePoints}</div>
+                            </div>
+                            <div className="bg-white p-2 rounded-lg border border-slate-150">
+                              <div className="text-[9px] uppercase font-bold text-purple-600">Rutas</div>
+                              <div className="text-xs font-black text-purple-700 mt-0.5">{routesCount}</div>
                             </div>
                           </div>
                         </div>
