@@ -1,5 +1,7 @@
 "use client";
 
+import JSZip from "jszip";
+
 import React, { useState, useEffect, Fragment } from "react";
 import dynamic from "next/dynamic";
 import { supabase } from "@/lib/supabase";
@@ -22,6 +24,8 @@ import {
   Plus,
   Edit2,
   Trash2,
+  Paperclip,
+  Archive,
   Lock,
   Unlock,
   FileText,
@@ -320,6 +324,11 @@ export default function HomePage() {
   const [selectedDocTargetId, setSelectedDocTargetId] = useState(""); // user_id or vehicle_id
   const [editDocDate, setEditDocDate] = useState("");
   const [simulatedFileName, setSimulatedFileName] = useState("");
+  const [selectedFileToUpload, setSelectedFileToUpload] = useState<File | null>(null);
+  const [currentDocFileUrl, setCurrentDocFileUrl] = useState<string | null>(null);
+  const [currentDocFileName, setCurrentDocFileName] = useState<string | null>(null);
+  const [isBackupProcessing, setIsBackupProcessing] = useState(false);
+  const [backupStatusMessage, setBackupStatusMessage] = useState("");
   const [savingDoc, setSavingDoc] = useState(false);
   const [docEditError, setDocEditError] = useState("");
 
@@ -1057,31 +1066,293 @@ export default function HomePage() {
     }
   };
 
-  // Delete User
+  // Helper: Extract storage path from Supabase storage public URL
+  const extractStoragePathFromUrl = (url: string): string | null => {
+    try {
+      if (!url) return null;
+      const parts = url.split("/storage/v1/object/public/documents/");
+      if (parts.length > 1) {
+        return decodeURIComponent(parts[1].split('?')[0]);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Helper: Download and bundle user documents in a ZIP archive
+  const downloadUserBackupZip = async (user: AppUser, docs: any[], passes: any[]) => {
+    const filesToDownload: { name: string; url: string }[] = [];
+
+    docs.forEach((d, index) => {
+      if (d.archivo_url) {
+        const ext = d.archivo_nombre ? d.archivo_nombre.split('.').pop() : 'pdf';
+        const cleanDocName = d.document_name.replace(/[^a-zA-Z0-9_-]/g, '_');
+        filesToDownload.push({
+          name: `Documentos_Obligatorios/${index + 1}_${cleanDocName}.${ext}`,
+          url: d.archivo_url,
+        });
+      }
+    });
+
+    passes.forEach((p) => {
+      if (p.archivo_url) {
+        const ext = p.archivo_nombre ? p.archivo_nombre.split('.').pop() : 'pdf';
+        const cleanFaena = (p.faena_name || 'Faena').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const cleanTipo = (p.tipo_documento || 'Pase').replace(/[^a-zA-Z0-9_-]/g, '_');
+        filesToDownload.push({
+          name: `Pases_de_Faena/${cleanFaena}_${cleanTipo}.${ext}`,
+          url: p.archivo_url,
+        });
+      }
+    });
+
+    if (filesToDownload.length === 0) return false;
+
+    const zip = new JSZip();
+    const todayStr = new Date().toLocaleDateString('es-CL', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const readmeContent = `===================================================================
+COPIA DE SEGURIDAD DE DOCUMENTACIÓN - CONTROL DE RUTA
+===================================================================
+TRABAJADOR: ${user.nombre}
+RUT: ${user.rut}
+CARGO: ${user.cargo}
+TIPO DE USUARIO: ${user.tipo_usuario}
+FECHA DE DESCARGA / BAJA: ${todayStr}
+TOTAL DE ARCHIVOS RESPALDADOS: ${filesToDownload.length}
+
+DETALLE DE DOCUMENTOS INCLUIDOS EN ESTE PAQUETE:
+${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
+===================================================================
+`;
+
+    zip.file("README_Respaldo_Trabajador.txt", readmeContent);
+
+    for (const item of filesToDownload) {
+      try {
+        const res = await fetch(item.url);
+        if (res.ok) {
+          const blob = await res.blob();
+          zip.file(item.name, blob);
+        }
+      } catch (err) {
+        console.error("Error fetching file for zip:", item.url, err);
+      }
+    }
+
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    const cleanUserName = user.nombre.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
+    const cleanRut = user.rut.replace(/[^a-zA-Z0-9_-]/g, '');
+    const dateFormatted = new Date().toISOString().substring(0, 10);
+    const zipFilename = `Respaldo_Documentos_Usuario_${cleanRut}_${cleanUserName}_${dateFormatted}.zip`;
+
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = zipFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    return true;
+  };
+
+  // Helper: Download and bundle vehicle documents in a ZIP archive
+  const downloadVehicleBackupZip = async (vehicle: Vehicle, docs: any[]) => {
+    const filesToDownload: { name: string; url: string }[] = [];
+
+    docs.forEach((d, index) => {
+      if (d.archivo_url) {
+        const ext = d.archivo_nombre ? d.archivo_nombre.split('.').pop() : 'pdf';
+        const cleanDocName = d.document_name.replace(/[^a-zA-Z0-9_-]/g, '_');
+        filesToDownload.push({
+          name: `Documentos_Vehiculo/${index + 1}_${cleanDocName}.${ext}`,
+          url: d.archivo_url,
+        });
+      }
+    });
+
+    if (filesToDownload.length === 0) return false;
+
+    const zip = new JSZip();
+    const todayStr = new Date().toLocaleDateString('es-CL', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    const readmeContent = `===================================================================
+COPIA DE SEGURIDAD DE DOCUMENTACIÓN VEHICULAR - CONTROL DE RUTA
+===================================================================
+VEHÍCULO (CÓDIGO): ${vehicle.codigo}
+PATENTE: ${vehicle.patente}
+TIPO: ${vehicle.tipo_vehiculo}
+MARCA / MODELO: ${vehicle.marca} ${vehicle.modelo} (${vehicle.anio})
+FECHA DE DESCARGA / BAJA: ${todayStr}
+TOTAL DE ARCHIVOS RESPALDADOS: ${filesToDownload.length}
+
+DETALLE DE DOCUMENTOS INCLUIDOS EN ESTE PAQUETE:
+${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
+===================================================================
+`;
+
+    zip.file("README_Respaldo_Vehiculo.txt", readmeContent);
+
+    for (const item of filesToDownload) {
+      try {
+        const res = await fetch(item.url);
+        if (res.ok) {
+          const blob = await res.blob();
+          zip.file(item.name, blob);
+        }
+      } catch (err) {
+        console.error("Error fetching file for zip:", item.url, err);
+      }
+    }
+
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    const cleanPlate = (vehicle.patente || vehicle.codigo).replace(/[^a-zA-Z0-9_-]/g, '');
+    const dateFormatted = new Date().toISOString().substring(0, 10);
+    const zipFilename = `Respaldo_Documentos_Vehiculo_${cleanPlate}_${dateFormatted}.zip`;
+
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = zipFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    return true;
+  };
+
+  // Delete User with automatic ZIP backup & cloud storage release
   const handleDeleteUser = async (id: string) => {
-    if (!confirm("¿Estás seguro de que deseas eliminar este usuario?")) return;
+    const user = users.find((u) => u.id === id);
+    if (!user) return;
+
+    // 1. Fetch user docs and passes to check for attached files
+    const { data: userDocs } = await supabase
+      .from("user_documents")
+      .select("*")
+      .eq("user_id", id);
+
+    const { data: userPasses } = await supabase
+      .from("user_passes")
+      .select("*")
+      .eq("user_id", id);
+
+    const allDocs = userDocs || [];
+    const allPasses = userPasses || [];
+    const filesWithUrl = [
+      ...allDocs.filter((d) => d.archivo_url),
+      ...allPasses.filter((p) => p.archivo_url),
+    ];
+
+    let confirmMsg = `¿Estás seguro de que deseas eliminar al usuario "${user.nombre}" (${user.rut})?`;
+    if (filesWithUrl.length > 0) {
+      confirmMsg += `\n\n⚠️ Este trabajador cuenta con ${filesWithUrl.length} archivo(s) de respaldo cargados. El sistema descargará automáticamente un archivo ZIP comprimido con todos sus documentos como copia de seguridad y luego eliminará el perfil para liberar espacio de almacenamiento.`;
+    }
+
+    if (!confirm(confirmMsg)) return;
 
     try {
+      if (filesWithUrl.length > 0) {
+        setBackupStatusMessage("Generando copia de seguridad ZIP de documentos del trabajador...");
+        setIsBackupProcessing(true);
+        await downloadUserBackupZip(user, allDocs, allPasses);
+
+        // Delete files from Supabase Storage
+        const pathsToDelete = filesWithUrl
+          .map((f) => extractStoragePathFromUrl(f.archivo_url))
+          .filter((p): p is string => p !== null);
+
+        if (pathsToDelete.length > 0) {
+          await supabase.storage.from("documents").remove(pathsToDelete);
+        }
+      }
+
+      // Delete DB records
+      await supabase.from("user_documents").delete().eq("user_id", id);
+      await supabase.from("user_passes").delete().eq("user_id", id);
       const { error } = await supabase.from("app_users").delete().eq("id", id);
       if (error) throw error;
 
       setUsers(users.filter((u) => u.id !== id));
+      alert(
+        filesWithUrl.length > 0
+          ? `Usuario "${user.nombre}" eliminado con éxito. El archivo ZIP de respaldo ha sido descargado en tu equipo.`
+          : `Usuario "${user.nombre}" eliminado con éxito.`
+      );
     } catch (err: any) {
       alert("Error al eliminar usuario: " + err.message);
+    } finally {
+      setIsBackupProcessing(false);
+      setBackupStatusMessage("");
     }
   };
 
-  // Delete Vehicle
+  // Delete Vehicle with automatic ZIP backup & cloud storage release
   const handleDeleteVehicle = async (id: string) => {
-    if (!confirm("¿Estás seguro de que deseas eliminar este vehículo?")) return;
+    const vehicle = vehicles.find((v) => v.id === id);
+    if (!vehicle) return;
+
+    const { data: vehicleDocs } = await supabase
+      .from("vehicle_documents")
+      .select("*")
+      .eq("vehicle_id", id);
+
+    const allDocs = vehicleDocs || [];
+    const filesWithUrl = allDocs.filter((d) => d.archivo_url);
+
+    let confirmMsg = `¿Estás seguro de que deseas eliminar el vehículo "${vehicle.codigo}" (Patente: ${vehicle.patente})?`;
+    if (filesWithUrl.length > 0) {
+      confirmMsg += `\n\n⚠️ Este vehículo cuenta con ${filesWithUrl.length} documento(s) de respaldo cargados. El sistema descargará automáticamente un archivo ZIP comprimido con todos sus documentos antes de eliminarlo para liberar espacio de almacenamiento.`;
+    }
+
+    if (!confirm(confirmMsg)) return;
 
     try {
+      if (filesWithUrl.length > 0) {
+        setBackupStatusMessage("Generando copia de seguridad ZIP de documentos del vehículo...");
+        setIsBackupProcessing(true);
+        await downloadVehicleBackupZip(vehicle, allDocs);
+
+        const pathsToDelete = filesWithUrl
+          .map((f) => extractStoragePathFromUrl(f.archivo_url))
+          .filter((p): p is string => p !== null);
+
+        if (pathsToDelete.length > 0) {
+          await supabase.storage.from("documents").remove(pathsToDelete);
+        }
+      }
+
+      await supabase.from("vehicle_documents").delete().eq("vehicle_id", id);
       const { error } = await supabase.from("vehicles").delete().eq("id", id);
       if (error) throw error;
 
       setVehicles(vehicles.filter((v) => v.id !== id));
+      alert(
+        filesWithUrl.length > 0
+          ? `Vehículo "${vehicle.codigo}" eliminado con éxito. El archivo ZIP de respaldo ha sido descargado en tu equipo.`
+          : `Vehículo "${vehicle.codigo}" eliminado con éxito.`
+      );
     } catch (err: any) {
       alert("Error al eliminar vehículo: " + err.message);
+    } finally {
+      setIsBackupProcessing(false);
+      setBackupStatusMessage("");
     }
   };
 
@@ -1224,13 +1495,18 @@ export default function HomePage() {
     docName: string,
     targetId: string,
     currentDate?: string,
-    passType: string = "Pase de Acceso"
+    passType: string = "Pase de Acceso",
+    currentFileUrl?: string | null,
+    currentFileName?: string | null
   ) => {
     setSelectedDocType(type);
     setSelectedDocName(docName);
     setSelectedDocTargetId(targetId);
     setSelectedPassType(passType);
     setEditDocDate(currentDate || new Date().toISOString().substring(0, 10));
+    setSelectedFileToUpload(null);
+    setCurrentDocFileUrl(currentFileUrl || null);
+    setCurrentDocFileName(currentFileName || null);
     setSimulatedFileName("");
     setDocEditError("");
     setIsDocEditModalOpen(true);
@@ -1604,7 +1880,7 @@ export default function HomePage() {
     }
   };
 
-  // Save Document Date and Simulated File Upload
+  // Save Document Date and Real File Upload to Supabase Storage
   const handleSaveDoc = async (e: React.FormEvent) => {
     e.preventDefault();
     setDocEditError("");
@@ -1616,6 +1892,46 @@ export default function HomePage() {
 
     setSavingDoc(true);
     try {
+      let fileUrl = currentDocFileUrl;
+      let fileName = currentDocFileName;
+      let fileSize = undefined;
+
+      // 1. Upload new file to Supabase Storage if selected
+      if (selectedFileToUpload) {
+        const file = selectedFileToUpload;
+        const fileExt = file.name.split('.').pop() || 'pdf';
+        const cleanDocName = selectedDocName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const timestamp = Date.now();
+
+        let storagePath = "";
+        if (selectedDocType === "user_doc") {
+          storagePath = `users/${selectedDocTargetId}/${cleanDocName}_${timestamp}.${fileExt}`;
+        } else if (selectedDocType === "user_pass") {
+          const cleanPassType = (selectedPassType || "pase").toLowerCase().replace(/[^a-z0-9]/g, '_');
+          storagePath = `users/${selectedDocTargetId}/passes/${cleanDocName}_${cleanPassType}_${timestamp}.${fileExt}`;
+        } else if (selectedDocType === "vehicle_doc") {
+          storagePath = `vehicles/${selectedDocTargetId}/${cleanDocName}_${timestamp}.${fileExt}`;
+        }
+
+        const { error: uploadError } = await supabase.storage
+          .from("documents")
+          .upload(storagePath, file, {
+            cacheControl: "3600",
+            upsert: true,
+          });
+
+        if (uploadError) throw uploadError;
+
+        const { data: publicUrlData } = supabase.storage
+          .from("documents")
+          .getPublicUrl(storagePath);
+
+        fileUrl = publicUrlData.publicUrl;
+        fileName = file.name;
+        fileSize = file.size;
+      }
+
+      // 2. Save/Update record in database
       if (selectedDocType === "user_doc") {
         const { error } = await supabase
           .from("user_documents")
@@ -1624,6 +1940,9 @@ export default function HomePage() {
               user_id: selectedDocTargetId,
               document_name: selectedDocName,
               fecha_vencimiento: editDocDate,
+              archivo_url: fileUrl,
+              archivo_nombre: fileName,
+              archivo_tamano: fileSize,
             },
             { onConflict: "user_id,document_name" }
           );
@@ -1639,6 +1958,9 @@ export default function HomePage() {
               faena_name: selectedDocName,
               tipo_documento: selectedPassType || "Pase de Acceso",
               fecha_vencimiento: editDocDate,
+              archivo_url: fileUrl,
+              archivo_nombre: fileName,
+              archivo_tamano: fileSize,
             },
             { onConflict: "user_id,faena_name,tipo_documento" }
           );
@@ -1653,6 +1975,9 @@ export default function HomePage() {
               vehicle_id: selectedDocTargetId,
               document_name: selectedDocName,
               fecha_vencimiento: editDocDate,
+              archivo_url: fileUrl,
+              archivo_nombre: fileName,
+              archivo_tamano: fileSize,
             },
             { onConflict: "vehicle_id,document_name" }
           );
@@ -2444,12 +2769,27 @@ export default function HomePage() {
                                               return (
                                                 <div
                                                   key={docName}
-                                                  onClick={() => openDocEditModal("user_doc", docName, user.id, record?.fecha_vencimiento)}
+                                                  onClick={() => openDocEditModal("user_doc", docName, user.id, record?.fecha_vencimiento, "Pase de Acceso", record?.archivo_url, record?.archivo_nombre)}
                                                   className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 bg-white shadow-sm hover:border-blue-400 hover:shadow transition-all cursor-pointer"
                                                 >
-                                                  <span className="text-sm font-semibold text-slate-700 hover:text-blue-600 transition-colors">
-                                                    {docName}
-                                                  </span>
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="text-sm font-semibold text-slate-700 hover:text-blue-600 transition-colors">
+                                                      {docName}
+                                                    </span>
+                                                    {record?.archivo_url && (
+                                                      <a
+                                                        href={record.archivo_url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        className="inline-flex items-center gap-1 text-[10px] text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-1.5 py-0.5 rounded font-bold transition-colors shadow-2xs"
+                                                        title="Ver archivo de respaldo"
+                                                      >
+                                                        <Paperclip className="h-2.5 w-2.5" />
+                                                        Respaldo
+                                                      </a>
+                                                    )}
+                                                  </div>
                                                   <div className="flex items-center gap-2">
                                                     <span className="text-xs text-slate-500 flex items-center gap-1 font-mono">
                                                       <Calendar className="h-3.5 w-3.5" />
@@ -2542,7 +2882,7 @@ export default function HomePage() {
                                                             <button
                                                               type="button"
                                                               onClick={() =>
-                                                                openDocEditModal("user_pass", faenaName, user.id, paseAcceso?.fecha_vencimiento, "Pase de Acceso")
+                                                                openDocEditModal("user_pass", faenaName, user.id, paseAcceso?.fecha_vencimiento, "Pase de Acceso", paseAcceso?.archivo_url, paseAcceso?.archivo_nombre)
                                                               }
                                                               className="flex items-center gap-2 group text-left w-full hover:opacity-80 transition-opacity"
                                                               title="Clic para editar fecha del Pase de Acceso"
@@ -2575,7 +2915,7 @@ export default function HomePage() {
                                                               <button
                                                                 type="button"
                                                                 onClick={() =>
-                                                                  openDocEditModal("user_pass", faenaName, user.id, licenciaInterna?.fecha_vencimiento, "Licencia Interna")
+                                                                  openDocEditModal("user_pass", faenaName, user.id, licenciaInterna?.fecha_vencimiento, "Licencia Interna", licenciaInterna?.archivo_url, licenciaInterna?.archivo_nombre)
                                                                 }
                                                                 className="flex items-center gap-2 group text-left w-full hover:opacity-80 transition-opacity"
                                                                 title="Clic para editar fecha de Licencia Interna"
@@ -2787,12 +3127,27 @@ export default function HomePage() {
                                             return (
                                               <div
                                                 key={docName}
-                                                onClick={() => openDocEditModal("vehicle_doc", docName, vehicle.id, record?.fecha_vencimiento)}
+                                                onClick={() => openDocEditModal("vehicle_doc", docName, vehicle.id, record?.fecha_vencimiento, "Pase de Acceso", record?.archivo_url, record?.archivo_nombre)}
                                                 className="flex flex-col p-3 rounded-lg border border-slate-200 bg-white shadow-sm hover:border-blue-400 hover:shadow transition-all cursor-pointer"
                                               >
-                                                <span className="text-xs font-bold text-slate-500 uppercase truncate mb-1 hover:text-blue-600 transition-colors" title={docName}>
-                                                  {docName}
-                                                </span>
+                                                <div className="flex items-center justify-between mb-1">
+                                                  <span className="text-xs font-bold text-slate-500 uppercase truncate hover:text-blue-600 transition-colors" title={docName}>
+                                                    {docName}
+                                                  </span>
+                                                  {record?.archivo_url && (
+                                                    <a
+                                                      href={record.archivo_url}
+                                                      target="_blank"
+                                                      rel="noopener noreferrer"
+                                                      onClick={(e) => e.stopPropagation()}
+                                                      className="inline-flex items-center gap-1 text-[9px] text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-1 py-0.5 rounded font-bold transition-colors"
+                                                      title="Ver archivo de respaldo"
+                                                    >
+                                                      <Paperclip className="h-2.5 w-2.5" />
+                                                      PDF
+                                                    </a>
+                                                  )}
+                                                </div>
                                                 <div className="flex items-center justify-between mt-1">
                                                   <span className="text-xs text-slate-700 font-mono font-medium flex items-center gap-1">
                                                     <Calendar className="h-3.5 w-3.5 text-slate-400" />
@@ -6146,28 +6501,56 @@ export default function HomePage() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-2">
-                  Cargar Archivo de Respaldo (Simulado)
+                  Cargar Archivo de Respaldo Digital
                 </label>
-                <div className="border-2 border-dashed border-slate-300 hover:border-blue-400 rounded-xl p-6 text-center cursor-pointer transition-colors relative">
+
+                {currentDocFileUrl && (
+                  <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="h-5 w-5 text-blue-600 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-blue-900 truncate">
+                          {currentDocFileName || "Archivo digital adjunto"}
+                        </p>
+                        <p className="text-[10px] text-blue-700 font-medium">Documento actualmente respaldado</p>
+                      </div>
+                    </div>
+                    <a
+                      href={currentDocFileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 hover:text-blue-900 bg-white border border-blue-300 px-2.5 py-1 rounded-lg shadow-xs hover:bg-blue-50 transition-colors shrink-0"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      Ver / Descargar
+                    </a>
+                  </div>
+                )}
+
+                <div className="border-2 border-dashed border-slate-300 hover:border-blue-400 rounded-xl p-6 text-center cursor-pointer transition-colors relative bg-slate-50/50 hover:bg-blue-50/20">
                   <input
                     type="file"
                     accept=".pdf,.png,.jpg,.jpeg"
                     onChange={(e) => {
                       if (e.target.files && e.target.files.length > 0) {
-                        setSimulatedFileName(e.target.files[0].name);
+                        setSelectedFileToUpload(e.target.files[0]);
                       }
                     }}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   />
                   <Upload className="h-8 w-8 text-slate-400 mx-auto mb-2" />
-                  {simulatedFileName ? (
+                  {selectedFileToUpload ? (
                     <div className="space-y-1">
-                      <p className="text-xs font-bold text-green-600 truncate">{simulatedFileName}</p>
-                      <p className="text-[10px] text-slate-450">¡Archivo listo para cargar!</p>
+                      <p className="text-xs font-bold text-emerald-600 truncate">{selectedFileToUpload.name}</p>
+                      <p className="text-[10px] text-slate-500 font-medium">
+                        {(selectedFileToUpload.size / (1024 * 1024)).toFixed(2)} MB • ¡Listo para subir al guardar!
+                      </p>
                     </div>
                   ) : (
                     <div className="space-y-1">
-                      <p className="text-xs font-semibold text-slate-650">Arrastra o selecciona un archivo</p>
+                      <p className="text-xs font-semibold text-slate-700">
+                        {currentDocFileUrl ? "Arrastra o selecciona un nuevo archivo para reemplazar el actual" : "Arrastra o selecciona un archivo"}
+                      </p>
                       <p className="text-[10px] text-slate-400">PDF, PNG o JPG hasta 10MB</p>
                     </div>
                   )}
@@ -6191,6 +6574,27 @@ export default function HomePage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* BACKUP PROCESSING OVERLAY */}
+      {isBackupProcessing && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-8 max-w-sm w-full shadow-2xl text-center space-y-4 font-sans border border-slate-200">
+            <div className="h-16 w-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto text-blue-600 animate-bounce">
+              <Archive className="h-8 w-8" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Generando Copia de Seguridad</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                {backupStatusMessage || "Descargando y comprimiendo archivos en un paquete ZIP..."}
+              </p>
+            </div>
+            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full bg-blue-600 rounded-full animate-pulse w-3/4 mx-auto"></div>
+            </div>
+            <p className="text-[10px] text-slate-400">Por favor espere mientras se prepara su archivo.</p>
           </div>
         </div>
       )}
