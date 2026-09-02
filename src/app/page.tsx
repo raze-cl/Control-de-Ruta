@@ -3280,33 +3280,35 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                                 </td>
                                 <td className="px-6 py-4 font-bold text-slate-800">{faena.nombre}</td>
                                 <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                                  <div className="flex flex-col gap-1">
-                                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                                      <MapPin className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                                      <span className="truncate max-w-[170px]">{faena.direccion_inicio || "Garita / Acceso Principal"}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[10px] text-slate-500 font-mono font-medium">
+                                  <div className="flex items-center justify-between gap-3 max-w-[250px]">
+                                    <div className="flex flex-col gap-0.5 min-w-0">
+                                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                                        <MapPin className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                        <span className="truncate max-w-[150px]" title={faena.direccion_inicio || "Garita / Acceso Principal"}>
+                                          {faena.direccion_inicio || "Garita / Acceso Principal"}
+                                        </span>
+                                      </div>
+                                      <span className="text-[10px] text-slate-500 font-mono font-medium pl-5">
                                         {(faena.latitud_inicio ?? -22.4542).toFixed(4)}, {(faena.longitud_inicio ?? -68.9294).toFixed(4)}
                                       </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setSelectedPointForMap({
-                                            id: faena.id,
-                                            faena_id: faena.id,
-                                            codigo: `Inicio/Fin: ${faena.nombre} (${faena.direccion_inicio || "Acceso"})`,
-                                            latitude: faena.latitud_inicio ?? -22.4542,
-                                            longitude: faena.longitud_inicio ?? -68.9294,
-                                          });
-                                          setIsPointMapModalOpen(true);
-                                        }}
-                                        className="text-blue-600 hover:text-blue-800 p-0.5 rounded hover:bg-blue-50 transition-colors"
-                                        title="Ver ubicación en mapa interactivo"
-                                      >
-                                        <Map className="h-3.5 w-3.5" />
-                                      </button>
                                     </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedPointForMap({
+                                          id: faena.id,
+                                          faena_id: faena.id,
+                                          codigo: `Inicio/Fin: ${faena.nombre} (${faena.direccion_inicio || "Acceso"})`,
+                                          latitude: faena.latitud_inicio ?? -22.4542,
+                                          longitude: faena.longitud_inicio ?? -68.9294,
+                                        });
+                                        setIsPointMapModalOpen(true);
+                                      }}
+                                      className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 hover:text-blue-700 border border-blue-200 transition-all shadow-2xs shrink-0 cursor-pointer"
+                                      title="Ver ubicación Inicio/Fin en mapa interactivo"
+                                    >
+                                      <Map className="h-5 w-5" />
+                                    </button>
                                   </div>
                                 </td>
                                 <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
