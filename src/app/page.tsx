@@ -708,6 +708,7 @@ export default function HomePage() {
           }
 
           const isProblem = checkin?.estado_punto === 'No Realizado / Con Problema';
+          const isSuccess = checkin?.estado_punto === 'Completado';
           
           let fotoEvidencia = checkin?.foto_evidencia_url || checkin?.foto_inicio_url || checkin?.foto_termino_url || null;
           if (isProblem && !fotoEvidencia) {
@@ -726,7 +727,7 @@ export default function HomePage() {
             nombre: "",
             latitude: pt.latitude || 0,
             longitude: pt.longitude || 0,
-            completado: !!checkin,
+            completado: isSuccess,
             fecha_completado: checkin?.created_at || checkin?.fecha_hora,
             completed_at: checkin?.created_at || checkin?.fecha_hora,
             checkin_id: checkin?.id,
@@ -742,11 +743,9 @@ export default function HomePage() {
           };
         });
 
-        // Calculate progress: count unique completed points
-        const completedPointsCount = puntosDetalle.filter(p => p.completado && p.estado_punto === 'Completado').length;
-        const completedPoints = (start.estado === 'Finalizada' || completedPointsCount === totalPoints) 
-          ? completedPointsCount 
-          : checkins.length;
+        // Calculate progress: count unique completed points for THIS specific route
+        const completedPoints = puntosDetalle.filter(p => p.completado).length;
+        const problemPoints = puntosDetalle.filter(p => p.estado_punto === 'No Realizado / Con Problema').length;
         const progressPercent = totalPoints > 0 ? Math.round((completedPoints / totalPoints) * 100) : 0;
         
         let horaFin = "-";
@@ -774,6 +773,8 @@ export default function HomePage() {
             const lastCheckinTime = new Date(earlyTermNotification.created_at);
             horaFin = lastCheckinTime.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
           }
+        } else if (problemPoints > 0 && completedPoints < totalPoints) {
+          estado = "Con Novedad";
         } else if (completedPoints === totalPoints && totalPoints > 0) {
           estado = "Finalizada";
         }
@@ -4545,6 +4546,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
             // 4. Computed Route Status Totals
             const dashTotalRoutes = filteredDashboardRoutes.length;
             const dashCompletedRoutes = filteredDashboardRoutes.filter(r => r.estado === 'Finalizada').length;
+            const dashNovedadRoutes = filteredDashboardRoutes.filter(r => r.estado === 'Con Novedad').length;
             const dashInProgressRoutes = filteredDashboardRoutes.filter(r => r.estado === 'En Proceso').length;
             const dashEarlyTermRoutes = filteredDashboardRoutes.filter(r => r.estado === 'Término Anticipado').length;
 
@@ -4582,13 +4584,33 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                 }
               });
 
-              // Completed points in actual route executions for this faena
+              // Completed and problem points in actual route executions for this faena
               const fRoutes = filteredDashboardRoutes.filter(r => r.faena_id === faena.id || r.faena_name === faena.nombre);
-              let fCompletedPoints = 0;
+              
+              // DEDUPLICATION: Count unique (point_id, fecha_inicio) combinations
+              const uniqueCompletedPointDays = new Set<string>();
+              const uniqueProblemPointDays = new Set<string>();
+
               fRoutes.forEach(r => {
-                const pts = r.puntos_detalle || [];
-                fCompletedPoints += pts.filter(p => p.completado).length;
+                const dateStr = r.fecha_inicio;
+                (r.puntos_detalle || []).forEach(p => {
+                  const key = `${p.id}_${dateStr}`;
+                  if (p.completado && p.estado_punto === 'Completado') {
+                    uniqueCompletedPointDays.add(key);
+                  } else if (p.estado_punto === 'No Realizado / Con Problema') {
+                    uniqueProblemPointDays.add(key);
+                  }
+                });
               });
+
+              // If a point had a problem on date D, but was later successfully completed on date D in a resumed route,
+              // it counts as completed and is resolved
+              uniqueCompletedPointDays.forEach(key => {
+                uniqueProblemPointDays.delete(key);
+              });
+
+              const fCompletedPoints = uniqueCompletedPointDays.size;
+              const fProblemPoints = uniqueProblemPointDays.size;
 
               // Fallback: If no points configured in faenaPointsMap but routes were run, count route points
               if (fScheduledPoints === 0 && fRoutes.length > 0) {
@@ -4611,6 +4633,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                 routesCount: fRoutes.length,
                 scheduledPoints: fScheduledPoints,
                 completedPoints: fCompletedPoints,
+                problemPoints: fProblemPoints,
                 incompletePoints: fIncompletePoints,
                 compliance: fCompliance,
                 dailyCount,
@@ -4624,11 +4647,13 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
             // 7. Global KPI Totals derived from Schedule
             let dashTotalScheduledPoints = 0;
             let dashCompletedPoints = 0;
+            let dashTotalProblemPoints = 0;
             let dashTotalConfiguredPoints = 0;
 
             faenaStats.forEach(stat => {
               dashTotalScheduledPoints += stat.scheduledPoints;
               dashCompletedPoints += stat.completedPoints;
+              dashTotalProblemPoints += stat.problemPoints;
               dashTotalConfiguredPoints += stat.totalConfigured;
             });
 
@@ -4872,14 +4897,19 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                   {/* Puntos Completados vs Incompletos según Periodicidad */}
                   <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between">
                     <div>
-                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Puntos Programados</h3>
+                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Puntos en Período</h3>
                       <p className="text-2xl font-black text-slate-800 mt-2">
-                        <span className="text-emerald-600">{dashCompletedPoints}</span> / {dashTotalScheduledPoints}
+                        <span className="text-emerald-600">{dashCompletedPoints}</span> <span className="text-sm font-normal text-slate-400">/ {dashTotalScheduledPoints} prog.</span>
                       </p>
-                      <div className="flex items-center gap-2 mt-2 text-xs font-bold">
+                      <div className="flex flex-wrap items-center gap-1.5 mt-2 text-xs font-bold">
                         <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
                           {dashCompletedPoints} completados
                         </span>
+                        {dashTotalProblemPoints > 0 && (
+                          <span className="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                            {dashTotalProblemPoints} con novedad
+                          </span>
+                        )}
                         {dashIncompletePoints > 0 ? (
                           <span className="text-red-700 bg-red-50 px-1.5 py-0.5 rounded">
                             {dashIncompletePoints} pendientes
@@ -4903,6 +4933,12 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                       <p className="text-3xl font-black text-slate-800 mt-2">{dashTotalRoutes}</p>
                       <div className="flex items-center gap-2 mt-2 text-xs font-semibold text-slate-500">
                         <span className="text-emerald-600 font-bold">{dashCompletedRoutes} Fin.</span>
+                        {dashNovedadRoutes > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="text-amber-600 font-bold">{dashNovedadRoutes} Novedad</span>
+                          </>
+                        )}
                         <span>•</span>
                         <span className="text-blue-600 font-bold">{dashInProgressRoutes} En curso</span>
                       </div>
@@ -4912,18 +4948,24 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                     </div>
                   </div>
 
-                  {/* Términos Anticipados */}
+                  {/* Incidencias Justificadas */}
                   <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between">
                     <div>
-                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Términos Anticipados</h3>
-                      <p className="text-3xl font-black text-red-600 mt-2">{dashEarlyTermRoutes}</p>
-                      <span className="inline-flex items-center gap-1 text-xs font-bold text-red-600 mt-2 bg-red-50 px-2 py-0.5 rounded-lg">
+                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Incidencias en Ruta</h3>
+                      <p className="text-3xl font-black text-amber-600 mt-2">{dashTotalProblemPoints + dashEarlyTermRoutes}</p>
+                      <span className={`inline-flex items-center gap-1 text-xs font-bold mt-2 px-2 py-0.5 rounded-lg ${
+                        (dashTotalProblemPoints + dashEarlyTermRoutes) === 0
+                          ? 'text-emerald-700 bg-emerald-50'
+                          : 'text-amber-700 bg-amber-50'
+                      }`}>
                         <AlertTriangle className="h-3 w-3" />
-                        {dashEarlyTermRoutes === 0 ? 'Sin incidencias' : 'Rutas interrumpidas'}
+                        {(dashTotalProblemPoints + dashEarlyTermRoutes) === 0
+                          ? 'Sin incidencias'
+                          : `${dashTotalProblemPoints + dashEarlyTermRoutes} con respaldo`}
                       </span>
                     </div>
-                    <div className="h-12 w-12 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
-                      <XCircle className="h-6 w-6" />
+                    <div className="h-12 w-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                      <AlertTriangle className="h-6 w-6" />
                     </div>
                   </div>
                 </div>
@@ -4951,7 +4993,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {faenaStats.map(({ faena, routesCount, scheduledPoints, completedPoints, incompletePoints, compliance, dailyCount, weeklyCount, specificCount, totalConfigured }) => (
+                      {faenaStats.map(({ faena, routesCount, scheduledPoints, completedPoints, problemPoints, incompletePoints, compliance, dailyCount, weeklyCount, specificCount, totalConfigured }) => (
                         <div
                           key={faena.id}
                           className="bg-slate-50/60 rounded-xl border border-slate-200 p-4 space-y-3 hover:border-blue-300 transition-all shadow-xs"
@@ -5009,25 +5051,32 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                             </div>
                             <div className="flex justify-between text-[11px] text-slate-500 font-medium">
                               <span>Progreso según periodicidad</span>
-                              <span>{completedPoints} de {scheduledPoints} programados</span>
+                              <span>
+                                {completedPoints} de {scheduledPoints} programados
+                                {problemPoints > 0 ? ` (${problemPoints} con novedad)` : ''}
+                              </span>
                             </div>
                           </div>
 
-                          {/* Stat Grid: 4 columns */}
-                          <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-slate-200/60 text-center">
-                            <div className="bg-white p-2 rounded-lg border border-slate-150">
+                          {/* Stat Grid: 5 columns */}
+                          <div className="grid grid-cols-5 gap-1 pt-2 border-t border-slate-200/60 text-center">
+                            <div className="bg-white p-1.5 rounded-lg border border-slate-150">
                               <div className="text-[9px] uppercase font-bold text-slate-400">Prog.</div>
                               <div className="text-xs font-black text-slate-800 mt-0.5">{scheduledPoints}</div>
                             </div>
-                            <div className="bg-white p-2 rounded-lg border border-slate-150">
+                            <div className="bg-white p-1.5 rounded-lg border border-slate-150">
                               <div className="text-[9px] uppercase font-bold text-emerald-600">Listos</div>
                               <div className="text-xs font-black text-emerald-700 mt-0.5">{completedPoints}</div>
                             </div>
-                            <div className="bg-white p-2 rounded-lg border border-slate-150">
+                            <div className="bg-white p-1.5 rounded-lg border border-slate-150">
+                              <div className="text-[9px] uppercase font-bold text-amber-600">Novedad</div>
+                              <div className="text-xs font-black text-amber-700 mt-0.5">{problemPoints}</div>
+                            </div>
+                            <div className="bg-white p-1.5 rounded-lg border border-slate-150">
                               <div className="text-[9px] uppercase font-bold text-red-500">Pend.</div>
                               <div className="text-xs font-black text-red-600 mt-0.5">{incompletePoints}</div>
                             </div>
-                            <div className="bg-white p-2 rounded-lg border border-slate-150">
+                            <div className="bg-white p-1.5 rounded-lg border border-slate-150">
                               <div className="text-[9px] uppercase font-bold text-purple-600">Rutas</div>
                               <div className="text-xs font-black text-purple-700 mt-0.5">{routesCount}</div>
                             </div>
@@ -5120,6 +5169,8 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                                     className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold ${
                                       route.estado === 'Finalizada'
                                         ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                        : route.estado === 'Con Novedad'
+                                        ? 'bg-amber-50 text-amber-800 border border-amber-200'
                                         : route.estado === 'Término Anticipado'
                                         ? 'bg-red-50 text-red-700 border border-red-200'
                                         : 'bg-blue-50 text-blue-700 border border-blue-200'
@@ -5430,6 +5481,11 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                                 {isFinalizada && (
                                   <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full text-xs font-bold border border-emerald-100">
                                     Finalizada
+                                  </span>
+                                )}
+                                {record.estado === 'Con Novedad' && (
+                                  <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-800 px-2.5 py-1 rounded-full text-xs font-bold border border-amber-200">
+                                    Con Novedad
                                   </span>
                                 )}
                                 {isEarlyTerm && (
