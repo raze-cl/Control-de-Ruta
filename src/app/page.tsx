@@ -61,7 +61,8 @@ import {
   ExternalLink,
   Share2,
   RotateCcw,
-  RefreshCw
+  RefreshCw,
+  Camera
 } from "lucide-react";
 
 interface AppUser {
@@ -132,6 +133,15 @@ interface RoutePointDetail {
   completado: boolean;
   fecha_completado?: string;
   completed_at?: string;
+  checkin_id?: string;
+  estado_punto?: string;
+  observaciones?: string;
+  foto_inicio_url?: string | null;
+  foto_termino_url?: string | null;
+  latitud_checkin?: number | null;
+  longitud_checkin?: number | null;
+  inconsistente?: boolean;
+  respuestas?: any;
 }
 
 interface RouteRecord {
@@ -143,6 +153,11 @@ interface RouteRecord {
   hora_inicio: string;
   latitud_inicio?: number;
   longitud_inicio?: number;
+  latitud_fin?: number;
+  longitud_fin?: number;
+  fecha_fin?: string;
+  qr_inicio_escaneado?: boolean;
+  qr_fin_escaneado?: boolean;
   ayudante_id?: string;
   ayudante_nombre?: string;
   created_at: string;
@@ -241,6 +256,7 @@ export default function HomePage() {
   const [dashboardFaenaFilter, setDashboardFaenaFilter] = useState("");
   const [dashboardDatePreset, setDashboardDatePreset] = useState("all");
   const [selectedRouteForEvidenceModal, setSelectedRouteForEvidenceModal] = useState<RouteRecord | null>(null);
+  const [selectedPointDetailForModal, setSelectedPointDetailForModal] = useState<{ point: RoutePointDetail; route: RouteRecord; index: number } | null>(null);
 
   // Faenas Start / End QR Modal State
   const [selectedFaenaForQR, setSelectedFaenaForQR] = useState<Faena | null>(null);
@@ -579,7 +595,7 @@ export default function HomePage() {
         supabase.from("app_users").select("id, nombre, rut"),
         supabase.from("faenas").select("id, nombre"),
         supabase.from("faena_points").select("*"),
-        supabase.from("point_checkins").select("point_id, route_start_id, created_at"),
+        supabase.from("point_checkins").select("*"),
         supabase.from("app_notifications").select("tipo, created_at, driver_rut, faena_name, vehicle_code, motivo, details")
       ]);
 
@@ -699,7 +715,7 @@ export default function HomePage() {
         // Filter points for this faena
         const faenaPointsList = allPoints?.filter(p => p.faena_id === start.faena_id) || [];
         
-        // Map points to RoutePointDetail
+        // Map points to RoutePointDetail with full checkin details
         const puntosDetalle: RoutePointDetail[] = faenaPointsList.map(pt => {
           const checkin = checkins.find(c => c.point_id === pt.id);
           return {
@@ -709,7 +725,17 @@ export default function HomePage() {
             latitude: pt.latitude || 0,
             longitude: pt.longitude || 0,
             completado: !!checkin,
-            fecha_completado: checkin?.created_at
+            fecha_completado: checkin?.created_at || checkin?.fecha_hora,
+            completed_at: checkin?.created_at || checkin?.fecha_hora,
+            checkin_id: checkin?.id,
+            estado_punto: checkin?.estado_punto || (checkin ? "Completado" : "Sin completar"),
+            observaciones: checkin?.observaciones,
+            foto_inicio_url: checkin?.foto_inicio_url,
+            foto_termino_url: checkin?.foto_termino_url,
+            latitud_checkin: checkin?.latitud ?? pt.latitude,
+            longitud_checkin: checkin?.longitud ?? pt.longitude,
+            inconsistente: checkin?.inconsistente,
+            respuestas: checkin?.respuestas,
           };
         });
 
@@ -722,6 +748,11 @@ export default function HomePage() {
           hora_inicio: start.hora_inicio?.slice(0, 5) || "-",
           latitud_inicio: start.latitud_inicio,
           longitud_inicio: start.longitud_inicio,
+          latitud_fin: start.latitud_fin,
+          longitud_fin: start.longitud_fin,
+          fecha_fin: start.fecha_fin,
+          qr_inicio_escaneado: start.qr_inicio_escaneado,
+          qr_fin_escaneado: start.qr_fin_escaneado,
           ayudante_id: start.ayudante_id,
           ayudante_nombre: start.ayudante_nombre,
           created_at: start.created_at,
@@ -7420,45 +7451,120 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                       No se encontraron puntos de control vinculados a este registro.
                     </div>
                   ) : (
-                    <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
-                      {pts.map((pt, idx) => (
-                        <div key={idx} className="p-3 sm:px-4 flex items-center justify-between gap-3 text-xs hover:bg-slate-50">
-                          <div className="flex items-center gap-3">
-                            <div className={`h-6 w-6 rounded-full flex items-center justify-center font-bold text-[10px] ${
-                              pt.completado ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'
-                            }`}>
-                              {idx + 1}
-                            </div>
-                            <div>
-                              <div className="font-bold text-slate-800">{pt.codigo || 'Sin código'}</div>
-                              {pt.latitude && pt.longitude && (
-                                <div className="text-[10px] text-slate-400 font-mono">
-                                  GPS: {pt.latitude}, {pt.longitude}
-                                </div>
-                              )}
-                            </div>
-                          </div>
+                    <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
+                      {pts.map((pt, idx) => {
+                        const isProblem = pt.estado_punto === 'No Realizado / Con Problema';
+                        const hasPhotos = !!pt.foto_inicio_url || !!pt.foto_termino_url;
+                        const hasObservations = !!pt.observaciones && pt.observaciones.trim().length > 0;
 
-                          <div className="text-right">
-                            {pt.completado ? (
-                              <div>
-                                <span className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded text-[11px]">
-                                  <Check className="h-3 w-3" /> Completado
-                                </span>
-                                {pt.completed_at && (
-                                  <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                                    {new Date(pt.completed_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                        return (
+                          <div
+                            key={idx}
+                            onClick={() => setSelectedPointDetailForModal({ point: pt, route, index: idx })}
+                            className="p-3 sm:px-4 flex items-center justify-between gap-3 text-xs hover:bg-blue-50/70 transition-colors cursor-pointer group"
+                            title="Haz clic para ver el detalle completo, fotos y GPS de este punto"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className={`h-6 w-6 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${
+                                pt.completado
+                                  ? (isProblem ? 'bg-orange-100 text-orange-800' : 'bg-emerald-100 text-emerald-700')
+                                  : 'bg-slate-100 text-slate-400'
+                              }`}>
+                                {idx + 1}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-bold text-slate-800 group-hover:text-blue-700 transition-colors truncate">
+                                  {pt.codigo || 'Sin código'}
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  {pt.latitude && pt.longitude && (
+                                    <span className="text-[10px] text-slate-400 font-mono">
+                                      GPS: {pt.latitude}, {pt.longitude}
+                                    </span>
+                                  )}
+                                  {hasPhotos && (
+                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                      📷 Fotos
+                                    </span>
+                                  )}
+                                  {hasObservations && (
+                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                      💬 Obs.
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="text-right">
+                                {pt.completado ? (
+                                  <div>
+                                    <span className={`inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded text-[11px] ${
+                                      isProblem
+                                        ? 'bg-orange-100 text-orange-800'
+                                        : 'bg-emerald-50 text-emerald-700'
+                                    }`}>
+                                      {isProblem ? (
+                                        <>
+                                          <AlertTriangle className="h-3 w-3 text-orange-600" />
+                                          Con Novedad
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Check className="h-3 w-3 text-emerald-600" />
+                                          Completado
+                                        </>
+                                      )}
+                                    </span>
+                                    {pt.completed_at && (
+                                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                        {new Date(pt.completed_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                                      </div>
+                                    )}
                                   </div>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-red-600 font-bold bg-red-50 px-2 py-0.5 rounded text-[11px]">
+                                    <X className="h-3 w-3" /> Sin completar
+                                  </span>
                                 )}
                               </div>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-red-600 font-bold bg-red-50 px-2 py-0.5 rounded text-[11px]">
-                                <X className="h-3 w-3" /> Pendiente
-                              </span>
-                            )}
+                              <span className="text-slate-300 group-hover:text-blue-600 font-bold text-sm">→</span>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* GPS End Location with Map */}
+                <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <MapPin className="h-4 w-4 text-emerald-600" />
+                      Ubicación GPS de Fin de Ruta
+                    </h4>
+                    {route.latitud_fin && route.longitud_fin && route.latitud_fin !== 0 && route.longitud_fin !== 0 ? (
+                      <span className="text-xs font-mono font-semibold text-slate-500">
+                        Lat: {route.latitud_fin} • Lng: {route.longitud_fin}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {route.latitud_fin && route.longitud_fin && route.latitud_fin !== 0 && route.longitud_fin !== 0 ? (
+                    <div className="h-44 w-full rounded-xl overflow-hidden border border-slate-200">
+                      <LocationViewMap
+                        latitude={route.latitud_fin}
+                        longitude={route.longitud_fin}
+                        pointCodigo={`Término de Ruta: ${route.vehicle_code} (${route.faena_name})`}
+                      />
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-400">
+                      {route.estado === 'En Proceso'
+                        ? 'Ruta actualmente en curso. La ubicación GPS de término se registrará al finalizar formalmente la jornada.'
+                        : 'No se registraron coordenadas GPS al finalizar esta ruta.'}
                     </div>
                   )}
                 </div>
@@ -7496,6 +7602,219 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                 >
                   <Printer className="h-4 w-4" />
                   Imprimir Reporte
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* DETALLE INDIVIDUAL DE PUNTO DE CONTROL MODAL */}
+      {selectedPointDetailForModal && (() => {
+        const { point, route, index } = selectedPointDetailForModal;
+        const isProblem = point.estado_punto === 'No Realizado / Con Problema';
+        const hasCheckin = point.completado;
+        const lat = point.latitud_checkin || point.latitude;
+        const lng = point.longitud_checkin || point.longitude;
+        const hasGps = !!lat && !!lng && lat !== 0 && lng !== 0;
+
+        return (
+          <div className="fixed inset-0 bg-black/75 z-[60] flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-slate-200 overflow-hidden font-sans my-8">
+              {/* Header */}
+              <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-7 w-7 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs">
+                    {index + 1}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-base">{point.codigo}</h3>
+                    <div className="text-xs text-slate-400 font-medium">
+                      Faena: {route.faena_name} • Vehículo: {route.vehicle_code}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedPointDetailForModal(null)}
+                  className="text-slate-400 hover:text-white cursor-pointer text-lg p-1"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-6 space-y-5 max-h-[78vh] overflow-y-auto text-slate-700">
+                {/* Status and Timestamp Card */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+                  <div>
+                    <span className="text-slate-400 font-medium block mb-1">Estado del Punto</span>
+                    {hasCheckin ? (
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                        isProblem
+                          ? 'bg-orange-100 text-orange-800 border border-orange-200'
+                          : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      }`}>
+                        {isProblem ? (
+                          <>
+                            <AlertTriangle className="h-4 w-4 text-orange-600" />
+                            Reporte de Problema / Inconveniente
+                          </>
+                        ) : (
+                          <>
+                            <Check className="h-4 w-4 text-emerald-600" />
+                            Completado con Éxito
+                          </>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-red-100 text-red-800 border border-red-200">
+                        <X className="h-4 w-4 text-red-600" />
+                        Sin Completar (Pendiente)
+                      </span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-medium block mb-1">Fecha y Hora de Registro</span>
+                    <strong className="text-slate-800 text-xs font-mono">
+                      {point.fecha_completado ? formatTimestampString(point.fecha_completado) : 'Sin fecha registrada'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-medium block mb-0.5">Operador Responsable</span>
+                    <span className="font-bold text-slate-800">{route.driver_name}</span>
+                    <span className="text-[10px] text-slate-400 block font-mono">RUT: {route.driver_rut}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-medium block mb-0.5">Ayudante en Turno</span>
+                    <span className="font-bold text-slate-800">{route.ayudante_nombre || 'Sin ayudante'}</span>
+                  </div>
+                </div>
+
+                {/* Observaciones y Comentarios */}
+                <div className="space-y-1.5">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-blue-600" />
+                    Observaciones y Novedades del Punto
+                  </h4>
+                  <div className={`p-3.5 rounded-xl border text-xs leading-relaxed ${
+                    point.observaciones && point.observaciones.trim()
+                      ? (isProblem ? 'bg-orange-50/60 border-orange-200 text-slate-800' : 'bg-slate-50 border-slate-200 text-slate-800')
+                      : 'bg-slate-50/40 border-dashed border-slate-200 text-slate-400 italic'
+                  }`}>
+                    {point.observaciones && point.observaciones.trim()
+                      ? point.observaciones
+                      : 'Sin observaciones o novedades registradas por el operador en este punto.'}
+                  </div>
+                </div>
+
+                {/* Evidencias Fotográficas: Inicio y Término */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <Camera className="h-3.5 w-3.5 text-purple-600" />
+                    Evidencias Fotográficas de Atención
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Foto Inicio */}
+                    <div className="bg-white rounded-xl border border-slate-200 p-3 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-slate-700">Foto Inicio de Servicio</span>
+                        {point.foto_inicio_url && (
+                          <a
+                            href={point.foto_inicio_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-0.5"
+                          >
+                            Abrir <ExternalLink className="h-2.5 w-2.5" />
+                          </a>
+                        )}
+                      </div>
+                      {point.foto_inicio_url ? (
+                        <a href={point.foto_inicio_url} target="_blank" rel="noopener noreferrer" className="block group">
+                          <img
+                            src={point.foto_inicio_url}
+                            alt="Foto Inicio de Servicio"
+                            className="w-full h-48 object-cover rounded-lg border border-slate-200 group-hover:opacity-90 transition-opacity"
+                          />
+                        </a>
+                      ) : (
+                        <div className="h-48 rounded-lg border border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 bg-slate-50 text-xs p-4 text-center">
+                          <Camera className="h-8 w-8 text-slate-300 mb-1" />
+                          <span>Sin fotografía de inicio</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Foto Término */}
+                    <div className="bg-white rounded-xl border border-slate-200 p-3 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-slate-700">Foto Término de Servicio</span>
+                        {point.foto_termino_url && (
+                          <a
+                            href={point.foto_termino_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] font-bold text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-0.5"
+                          >
+                            Abrir <ExternalLink className="h-2.5 w-2.5" />
+                          </a>
+                        )}
+                      </div>
+                      {point.foto_termino_url ? (
+                        <a href={point.foto_termino_url} target="_blank" rel="noopener noreferrer" className="block group">
+                          <img
+                            src={point.foto_termino_url}
+                            alt="Foto Término de Servicio"
+                            className="w-full h-48 object-cover rounded-lg border border-slate-200 group-hover:opacity-90 transition-opacity"
+                          />
+                        </a>
+                      ) : (
+                        <div className="h-48 rounded-lg border border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 bg-slate-50 text-xs p-4 text-center">
+                          <Camera className="h-8 w-8 text-slate-300 mb-1" />
+                          <span>Sin fotografía de término</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Ubicación GPS del Punto con Mapa */}
+                <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <MapPin className="h-3.5 w-3.5 text-blue-600" />
+                      Geolocalización GPS del Punto
+                    </h4>
+                    {hasGps && (
+                      <span className="text-xs font-mono font-semibold text-slate-500">
+                        Lat: {lat} • Lng: {lng}
+                      </span>
+                    )}
+                  </div>
+
+                  {hasGps ? (
+                    <div className="h-44 w-full rounded-xl overflow-hidden border border-slate-200">
+                      <LocationViewMap
+                        latitude={lat}
+                        longitude={lng}
+                        pointCodigo={`Punto: ${point.codigo} (${route.faena_name})`}
+                      />
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-400">
+                      Sin coordenadas GPS registradas para este punto.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSelectedPointDetailForModal(null)}
+                  className="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer"
+                >
+                  Cerrar Detalle de Punto
                 </button>
               </div>
             </div>
