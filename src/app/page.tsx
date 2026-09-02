@@ -789,6 +789,9 @@ export default function HomePage() {
       if (selectedRouteForModal?.id === recordId) {
         setSelectedRouteForModal(null);
       }
+      if (selectedRouteForEvidenceModal?.id === recordId) {
+        setSelectedRouteForEvidenceModal(null);
+      }
       fetchRouteRecords();
     } catch (err: any) {
       alert("Error al eliminar registro: " + err.message);
@@ -5142,6 +5145,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                           <th className="px-6 py-3.5">Inicio Ruta</th>
                           <th className="px-6 py-3.5">GPS Inicio</th>
                           <th className="px-6 py-3.5">Fin Ruta</th>
+                          <th className="px-6 py-3.5">GPS Fin</th>
                           <th className="px-6 py-3.5">Cumplimiento / Progreso</th>
                           <th className="px-6 py-3.5">Estado</th>
                           <th className="px-6 py-3.5 text-center">Acciones</th>
@@ -5156,11 +5160,12 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                           return (
                             <tr 
                               key={record.id} 
-                              onClick={() => setSelectedRouteForModal(record)}
-                              className="hover:bg-slate-100/50 transition-colors cursor-pointer"
+                              onClick={() => setSelectedRouteForEvidenceModal(record)}
+                              className="hover:bg-blue-50/40 transition-colors cursor-pointer group"
+                              title="Haz clic para abrir el Reporte Completo de Jornada"
                             >
                               {/* Faena */}
-                              <td className="px-6 py-4 font-semibold text-slate-800">
+                              <td className="px-6 py-4 font-semibold text-slate-800 group-hover:text-blue-700 transition-colors">
                                 {record.faena_name}
                               </td>
 
@@ -5203,10 +5208,10 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                                       });
                                       setIsPointMapModalOpen(true);
                                     }}
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 text-xs font-semibold transition-colors group"
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 text-xs font-semibold transition-colors group/btn"
                                     title="Ver punto de inicio GPS en mapa"
                                   >
-                                    <MapPin className="h-3.5 w-3.5 text-blue-600 group-hover:scale-110 transition-transform shrink-0" />
+                                    <MapPin className="h-3.5 w-3.5 text-blue-600 group-hover/btn:scale-110 transition-transform shrink-0" />
                                     <span className="font-mono text-[11px]">
                                       {record.latitud_inicio.toFixed(4)}, {record.longitud_inicio.toFixed(4)}
                                     </span>
@@ -5227,6 +5232,36 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                                   <span className="font-semibold text-slate-700">
                                     {record.hora_fin}
                                   </span>
+                                )}
+                              </td>
+
+                              {/* GPS Fin */}
+                              <td className="px-6 py-4">
+                                {record.latitud_fin && record.longitud_fin ? (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedPointForMap({
+                                        id: record.id,
+                                        faena_id: record.faena_id,
+                                        codigo: `Fin Ruta: ${record.faena_name} (${record.vehicle_code})`,
+                                        latitude: record.latitud_fin!,
+                                        longitude: record.longitud_fin!,
+                                      });
+                                      setIsPointMapModalOpen(true);
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-xs font-semibold transition-colors group/btn"
+                                    title="Ver punto de fin GPS en mapa"
+                                  >
+                                    <MapPin className="h-3.5 w-3.5 text-emerald-600 group-hover/btn:scale-110 transition-transform shrink-0" />
+                                    <span className="font-mono text-[11px]">
+                                      {record.latitud_fin.toFixed(4)}, {record.longitud_fin.toFixed(4)}
+                                    </span>
+                                  </button>
+                                ) : isEnProceso ? (
+                                  <span className="text-slate-400 text-xs italic">En proceso</span>
+                                ) : (
+                                  <span className="text-slate-400 text-xs italic">Sin GPS</span>
                                 )}
                               </td>
 
@@ -5275,10 +5310,10 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                                   <button 
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setSelectedRouteForModal(record);
+                                      setSelectedRouteForEvidenceModal(record);
                                     }}
-                                    className="inline-flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition-colors"
-                                    title="Ver detalle de puntos"
+                                    className="inline-flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                    title="Ver reporte completo de jornada y evidencias"
                                   >
                                     <Eye className="h-4 w-4" />
                                   </button>
@@ -5303,171 +5338,7 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                 )}
               </div>
 
-              {/* Selected Route Record Points Detail Modal */}
-              {selectedRouteForModal && (
-                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                  <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-slate-200 overflow-hidden font-sans">
-                    {/* Modal Header */}
-                    <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
-                      <div>
-                        <h3 className="font-bold text-lg">Detalle de Puntos de Control</h3>
-                        <p className="text-xs text-slate-400 mt-0.5">Faena: {selectedRouteForModal.faena_name}</p>
-                      </div>
-                      <button
-                        onClick={() => setSelectedRouteForModal(null)}
-                        className="text-slate-400 hover:text-white text-lg font-bold"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    
-                    {/* Modal Content */}
-                    <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto text-slate-700">
-                      {/* Route Summary Row */}
-                      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs">
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Operador</span>
-                          <span className="font-bold text-slate-800">{selectedRouteForModal.driver_name}</span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Ayudante</span>
-                          <span className="font-bold text-purple-700">{selectedRouteForModal.ayudante_nombre || "Sin Asignar"}</span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Vehículo</span>
-                          <span className="font-bold text-slate-800 font-mono">{selectedRouteForModal.vehicle_code}</span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Fecha / Hora Inicio</span>
-                          <span className="font-semibold text-slate-800">
-                            {selectedRouteForModal.fecha_inicio ? new Date(selectedRouteForModal.fecha_inicio + "T00:00:00").toLocaleDateString('es-CL') : "-"} {selectedRouteForModal.hora_inicio}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">GPS Inicio</span>
-                          {selectedRouteForModal.latitud_inicio && selectedRouteForModal.longitud_inicio ? (
-                            <button
-                              onClick={() => {
-                                setSelectedPointForMap({
-                                  id: selectedRouteForModal.id,
-                                  faena_id: selectedRouteForModal.faena_id,
-                                  codigo: `Inicio Ruta: ${selectedRouteForModal.faena_name} (${selectedRouteForModal.driver_name})`,
-                                  latitude: selectedRouteForModal.latitud_inicio!,
-                                  longitude: selectedRouteForModal.longitud_inicio!,
-                                });
-                                setIsPointMapModalOpen(true);
-                              }}
-                              className="inline-flex items-center gap-1 text-blue-600 hover:underline font-mono text-[11px] font-bold"
-                              title="Ver ubicación GPS de inicio"
-                            >
-                              <MapPin className="h-3 w-3 text-blue-500 shrink-0" />
-                              {selectedRouteForModal.latitud_inicio.toFixed(4)}, {selectedRouteForModal.longitud_inicio.toFixed(4)}
-                            </button>
-                          ) : (
-                            <span className="text-slate-400 italic">Sin GPS</span>
-                          )}
-                        </div>
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Estado de Ruta</span>
-                          <span className={`inline-block px-2 py-0.5 rounded font-bold text-[10px] ${
-                            selectedRouteForModal.estado === "Finalizada" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" :
-                            selectedRouteForModal.estado === "Término Anticipado" ? "bg-red-50 text-red-700 border border-red-100" :
-                            "bg-blue-50 text-blue-700 border border-blue-100"
-                          }`}>
-                            {selectedRouteForModal.estado}
-                          </span>
-                        </div>
-                      </div>
 
-                      {selectedRouteForModal.estado === "Término Anticipado" && selectedRouteForModal.motivo_termino && (
-                        <div className="p-3 bg-red-50 border border-red-100 rounded-lg text-xs text-red-700 flex flex-col gap-1">
-                          <span className="font-bold uppercase text-[9px] tracking-wider">Motivo de Término Anticipado:</span>
-                          <span className="italic">"{selectedRouteForModal.motivo_termino}"</span>
-                        </div>
-                      )}
-
-                      {/* Points List */}
-                      <div className="space-y-3">
-                        <h4 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-1.5">Puntos de Control Configurados</h4>
-                        {!selectedRouteForModal.puntos_detalle || selectedRouteForModal.puntos_detalle.length === 0 ? (
-                          <p className="text-center py-6 text-slate-400 text-xs italic">Esta faena no tiene puntos de control configurados.</p>
-                        ) : (
-                          <div className="space-y-2">
-                            {selectedRouteForModal.puntos_detalle.map((pt, idx) => (
-                              <div 
-                                key={pt.id} 
-                                className={`flex items-center justify-between p-3.5 rounded-lg border text-xs transition-colors ${
-                                  pt.completado ? 'bg-emerald-50/20 border-emerald-100' : 'bg-slate-50/50 border-slate-100'
-                                }`}
-                              >
-                                <div className="space-y-1">
-                                  <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                                    <span className="text-slate-400 font-mono text-xs">{idx + 1}.</span>
-                                    {pt.codigo}
-                                  </div>
-                                  <button
-                                    onClick={() => {
-                                      setSelectedPointForMap({
-                                        id: pt.id,
-                                        faena_id: selectedRouteForModal.faena_id,
-                                        codigo: pt.codigo,
-                                        latitude: pt.latitude,
-                                        longitude: pt.longitude,
-                                      });
-                                      setIsPointMapModalOpen(true);
-                                    }}
-                                    className="text-[10px] text-blue-600 hover:underline flex items-center gap-1 font-mono"
-                                    title="Ver punto en mapa"
-                                  >
-                                    <MapPin className="h-3 w-3 text-blue-500" />
-                                    {pt.latitude.toFixed(5)}, {pt.longitude.toFixed(5)}
-                                  </button>
-                                </div>
-
-                                <div className="flex flex-col items-end gap-1.5">
-                                  {pt.completado ? (
-                                    <>
-                                      <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold text-[10px]">
-                                        <Check className="h-3 w-3" /> Completado
-                                      </span>
-                                      {pt.fecha_completado && (
-                                        <span className="text-[9px] text-slate-400 font-medium">
-                                          {new Date(pt.fecha_completado).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
-                                      )}
-                                    </>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-bold text-[10px]">
-                                      <Clock className="h-3 w-3" /> Pendiente
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    
-                    {/* Modal Footer */}
-                    <div className="bg-slate-50 px-6 py-4 flex items-center justify-between border-t border-slate-200">
-                      <button
-                        onClick={() => handleDeleteRouteRecord(selectedRouteForModal.id)}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 text-xs font-semibold border border-red-200 transition-colors shadow-sm"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        Eliminar Registro de Ruta
-                      </button>
-                      <button
-                        onClick={() => setSelectedRouteForModal(null)}
-                        className="rounded-lg border border-slate-300 bg-white py-2 px-4 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
-                      >
-                        Cerrar
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -7588,13 +7459,26 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
 
               {/* Modal Footer */}
               <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => setSelectedRouteForEvidenceModal(null)}
-                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-xs rounded-lg transition-colors cursor-pointer"
-                >
-                  Cerrar
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRouteForEvidenceModal(null)}
+                    className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-xs rounded-lg transition-colors cursor-pointer"
+                  >
+                    Cerrar
+                  </button>
+                  {currentAdmin?.tipo_usuario !== "cliente" && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteRouteRecord(route.id)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs rounded-lg border border-red-200 transition-colors cursor-pointer"
+                      title="Eliminar este registro de ruta de la base de datos"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                      Eliminar Registro
+                    </button>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={() => window.print()}
