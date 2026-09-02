@@ -13,6 +13,10 @@ import {
   Clock,
   Printer,
   RefreshCw,
+  ExternalLink,
+  Eye,
+  Download,
+  Paperclip,
 } from "lucide-react";
 
 interface Vehicle {
@@ -32,6 +36,9 @@ interface VehicleDocument {
   vehicle_id: string;
   document_name: string;
   fecha_vencimiento: string;
+  archivo_url?: string;
+  archivo_nombre?: string;
+  archivo_tamano?: number;
   created_at?: string;
 }
 
@@ -120,6 +127,8 @@ export default function VehiclePublicDocPage({ params }: { params: Promise<{ cod
         colorDot: "bg-slate-400",
         dateStr: "Pendiente de registro",
         daysLeft: null,
+        fileUrl: doc?.archivo_url,
+        fileName: doc?.archivo_nombre,
       };
     }
 
@@ -137,6 +146,8 @@ export default function VehiclePublicDocPage({ params }: { params: Promise<{ cod
         colorDot: "bg-red-500",
         dateStr: formatDate(doc.fecha_vencimiento),
         daysLeft: diffDays,
+        fileUrl: doc.archivo_url,
+        fileName: doc.archivo_nombre,
       };
     } else if (diffDays <= 30) {
       return {
@@ -146,6 +157,8 @@ export default function VehiclePublicDocPage({ params }: { params: Promise<{ cod
         colorDot: "bg-amber-500",
         dateStr: formatDate(doc.fecha_vencimiento),
         daysLeft: diffDays,
+        fileUrl: doc.archivo_url,
+        fileName: doc.archivo_nombre,
       };
     } else {
       return {
@@ -155,6 +168,8 @@ export default function VehiclePublicDocPage({ params }: { params: Promise<{ cod
         colorDot: "bg-emerald-500",
         dateStr: formatDate(doc.fecha_vencimiento),
         daysLeft: diffDays,
+        fileUrl: doc.archivo_url,
+        fileName: doc.archivo_nombre,
       };
     }
   };
@@ -342,7 +357,7 @@ export default function VehiclePublicDocPage({ params }: { params: Promise<{ cod
                   </h2>
                 </div>
                 <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
-                  Verificación de Vencimiento Legal
+                  Verificación de Vencimiento Legal y Respaldo Digital
                 </span>
               </div>
 
@@ -359,7 +374,14 @@ export default function VehiclePublicDocPage({ params }: { params: Promise<{ cod
                           <FileText className="h-4 w-4" />
                         </div>
                         <div>
-                          <div className="text-sm font-bold text-white">{docName}</div>
+                          <div className="text-sm font-bold text-white flex items-center gap-2">
+                            <span>{docName}</span>
+                            {statusInfo.fileUrl && (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-blue-300 bg-blue-900/50 border border-blue-600/40 px-1.5 py-0.2 rounded font-semibold">
+                                <Paperclip className="h-2.5 w-2.5" /> Adjunto
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
                             <Calendar className="h-3 w-3 text-slate-500" />
                             <span>Vencimiento: <strong className="text-slate-200">{statusInfo.dateStr}</strong></span>
@@ -383,7 +405,20 @@ export default function VehiclePublicDocPage({ params }: { params: Promise<{ cod
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 self-start sm:self-auto pl-11 sm:pl-0">
+                      <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto pl-11 sm:pl-0">
+                        {statusInfo.fileUrl ? (
+                          <a
+                            href={statusInfo.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-blue-600/30 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/40 transition-all shadow-sm group"
+                            title="Abrir y ver documento oficial digitalizado"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5 text-blue-400 group-hover:text-white transition-colors" />
+                            Ver Documento
+                          </a>
+                        ) : null}
+
                         <span
                           className={
                             "inline-flex items-center gap-1.5 text-[11px] font-black px-2.5 py-1 rounded-lg border uppercase tracking-wider " +
