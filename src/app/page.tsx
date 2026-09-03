@@ -2328,11 +2328,9 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
   // Render Login page if not authenticated
   if (!isLoggedIn) {
     return (
-      <div className="flex min-h-screen flex-col justify-between items-center bg-slate-100 px-4 py-8 sm:px-6 lg:px-8">
-        {/* Top spacer for vertical balance */}
-        <div className="hidden sm:block h-4 w-full" />
-
-        <div className="w-full flex justify-center my-auto py-4">
+      <div className="flex min-h-screen flex-col justify-between bg-slate-100">
+        {/* Main Login Area */}
+        <div className="flex-1 flex items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
           {showPasswordRecovery ? (
             <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-xl border border-slate-200">
               <div className="flex flex-col items-center">
@@ -2485,37 +2483,55 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
           )}
         </div>
 
-        {/* Footer RAZE */}
-        <footer className="w-full max-w-lg mt-auto pt-6 pb-2">
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-5 rounded-2xl bg-white/80 backdrop-blur-sm border border-slate-200/90 py-3 px-6 shadow-sm text-center">
-            <a
-              href="https://wa.me/56966735408"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center hover:opacity-80 transition-opacity"
-              title="RAZE Web Design / Programming"
-            >
-              <img
-                src="/raze-logo.png"
-                alt="RAZE"
-                className="h-6 sm:h-7 w-auto object-contain"
-              />
-            </a>
-
-            <div className="hidden sm:block h-4 w-px bg-slate-300" />
-
-            <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-slate-600">
-              <span className="font-semibold text-slate-800">Andres Alquinta</span>
-              <span className="text-slate-300">•</span>
+        {/* Enterprise Bottom Footer */}
+        <footer className="w-full border-t border-slate-200 bg-white/60 backdrop-blur-xs py-3.5 px-6 sm:px-10 lg:px-16">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+            {/* Left: Brand & Studio */}
+            <div className="flex items-center gap-3">
               <a
                 href="https://wa.me/56966735408"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 font-semibold text-blue-600 hover:text-blue-700 hover:underline transition-colors"
+                className="flex items-center hover:opacity-80 transition-opacity"
+                title="RAZE - Web Design & Programming"
               >
-                <Phone className="h-3.5 w-3.5 text-blue-600" />
+                <img
+                  src="/raze-logo.png"
+                  alt="RAZE"
+                  className="h-5 w-auto object-contain opacity-85 hover:opacity-100 transition-opacity"
+                />
+              </a>
+              <span className="hidden md:inline text-slate-300">|</span>
+              <span className="hidden md:inline text-[11px] text-slate-400 font-medium">
+                Diseño Web & Programación
+              </span>
+            </div>
+
+            {/* Right: Developer & Contact */}
+            <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 text-xs">
+              <div className="flex items-center gap-1.5 text-slate-600">
+                <span className="text-slate-400">Desarrollo:</span>
+                <span className="font-semibold text-slate-800">Andres Alquinta</span>
+              </div>
+
+              <span className="text-slate-300">•</span>
+
+              <a
+                href="https://wa.me/56966735408"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 font-medium text-slate-700 hover:text-blue-600 transition-colors"
+                title="Contactar por WhatsApp"
+              >
+                <Phone className="h-3.5 w-3.5 text-slate-400" />
                 <span>+56 9 6673 5408</span>
               </a>
+
+              <span className="hidden sm:inline text-slate-300">•</span>
+
+              <span className="text-[11px] text-slate-400">
+                © {new Date().getFullYear()} Control de Ruta
+              </span>
             </div>
           </div>
         </footer>
