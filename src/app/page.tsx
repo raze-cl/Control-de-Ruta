@@ -62,7 +62,8 @@ import {
   Share2,
   RotateCcw,
   RefreshCw,
-  Camera
+  Camera,
+  Phone
 } from "lucide-react";
 
 interface AppUser {
@@ -2327,157 +2328,197 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
   // Render Login page if not authenticated
   if (!isLoggedIn) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-12 sm:px-6 lg:px-8">
-        {showPasswordRecovery ? (
-          <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-xl border border-slate-200">
-            <div className="flex flex-col items-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg">
-                <Lock className="h-9 w-9" />
-              </div>
-              <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-slate-800">
-                Recuperar Contraseña
-              </h2>
-              <p className="mt-2 text-center text-sm text-slate-500">
-                Ingresa tu correo registrado para recibir tus credenciales
-              </p>
-            </div>
+      <div className="flex min-h-screen flex-col justify-between items-center bg-slate-100 px-4 py-8 sm:px-6 lg:px-8">
+        {/* Top spacer for vertical balance */}
+        <div className="hidden sm:block h-4 w-full" />
 
-            {recoveryError && (
-              <div className="flex items-center gap-2 rounded-lg bg-red-50 p-4 text-sm text-red-600 border border-red-100">
-                <AlertCircle className="h-5 w-5 shrink-0" />
-                <span>{recoveryError}</span>
-              </div>
-            )}
-
-            {recoverySuccess && (
-              <div className="flex items-center gap-2 rounded-lg bg-green-50 p-4 text-sm text-green-700 border border-green-150">
-                <Check className="h-5 w-5 shrink-0" />
-                <span>{recoverySuccess}</span>
-              </div>
-            )}
-
-            <form className="mt-8 space-y-6" onSubmit={handleRecoverPassword}>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">
-                  Correo Electrónico
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={recoveryEmail}
-                  onChange={(e) => setRecoveryEmail(e.target.value)}
-                  className="block w-full rounded-lg border border-slate-300 py-2.5 px-3 text-slate-850 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
-                  placeholder="ejemplo@correo.com"
-                />
+        <div className="w-full flex justify-center my-auto py-4">
+          {showPasswordRecovery ? (
+            <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-xl border border-slate-200">
+              <div className="flex flex-col items-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg">
+                  <Lock className="h-9 w-9" />
+                </div>
+                <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-slate-800">
+                  Recuperar Contraseña
+                </h2>
+                <p className="mt-2 text-center text-sm text-slate-500">
+                  Ingresa tu correo registrado para recibir tus credenciales
+                </p>
               </div>
 
-              <div className="space-y-3">
-                <button
-                  type="submit"
-                  disabled={loadingRecovery}
-                  className="flex w-full justify-center rounded-lg bg-blue-600 py-3 px-4 text-sm font-bold text-white shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:bg-blue-400"
-                >
-                  {loadingRecovery ? "Enviando..." : "Enviar Contraseña"}
-                </button>
+              {recoveryError && (
+                <div className="flex items-center gap-2 rounded-lg bg-red-50 p-4 text-sm text-red-600 border border-red-100">
+                  <AlertCircle className="h-5 w-5 shrink-0" />
+                  <span>{recoveryError}</span>
+                </div>
+              )}
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowPasswordRecovery(false);
-                    setRecoveryError("");
-                    setRecoverySuccess("");
-                  }}
-                  className="flex w-full justify-center rounded-lg border border-slate-300 bg-white py-2.5 px-4 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none transition-colors"
-                >
-                  Volver al Inicio de Sesión
-                </button>
-              </div>
-            </form>
-          </div>
-        ) : (
-          <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-xl border border-slate-200">
-            <div className="flex flex-col items-center">
-              <img src="/logo.png" alt="Control de Ruta" className="h-20 w-auto object-contain" />
-              <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-slate-800">
-                Control de Ruta
-              </h2>
-              <p className="mt-2 text-center text-sm text-slate-500">
-                Panel de Control Administrador
-              </p>
-            </div>
+              {recoverySuccess && (
+                <div className="flex items-center gap-2 rounded-lg bg-green-50 p-4 text-sm text-green-700 border border-green-150">
+                  <Check className="h-5 w-5 shrink-0" />
+                  <span>{recoverySuccess}</span>
+                </div>
+              )}
 
-            {loginError && (
-              <div className="flex items-center gap-2 rounded-lg bg-red-50 p-4 text-sm text-red-600 border border-red-100">
-                <AlertCircle className="h-5 w-5 shrink-0" />
-                <span>{loginError}</span>
-              </div>
-            )}
-
-            <form className="mt-8 space-y-6" onSubmit={handleLogin}>
-              <div className="space-y-4 rounded-md">
+              <form className="mt-8 space-y-6" onSubmit={handleRecoverPassword}>
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">
-                    Nombre de Usuario
+                    Correo Electrónico
                   </label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-                      <User className="h-5 w-5" />
-                    </span>
-                    <input
-                      type="text"
-                      required
-                      value={loginUsername}
-                      onChange={(e) => setLoginUsername(e.target.value)}
-                      className="block w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
-                      placeholder="Usuario admin"
-                    />
+                  <input
+                    type="email"
+                    required
+                    value={recoveryEmail}
+                    onChange={(e) => setRecoveryEmail(e.target.value)}
+                    className="block w-full rounded-lg border border-slate-300 py-2.5 px-3 text-slate-850 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
+                    placeholder="ejemplo@correo.com"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <button
+                    type="submit"
+                    disabled={loadingRecovery}
+                    className="flex w-full justify-center rounded-lg bg-blue-600 py-3 px-4 text-sm font-bold text-white shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:bg-blue-400"
+                  >
+                    {loadingRecovery ? "Enviando..." : "Enviar Contraseña"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPasswordRecovery(false);
+                      setRecoveryError("");
+                      setRecoverySuccess("");
+                    }}
+                    className="flex w-full justify-center rounded-lg border border-slate-300 bg-white py-2.5 px-4 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none transition-colors"
+                  >
+                    Volver al Inicio de Sesión
+                  </button>
+                </div>
+              </form>
+            </div>
+          ) : (
+            <div className="w-full max-w-md space-y-8 rounded-2xl bg-white p-8 shadow-xl border border-slate-200">
+              <div className="flex flex-col items-center">
+                <img src="/logo.png" alt="Control de Ruta" className="h-20 w-auto object-contain" />
+                <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-slate-800">
+                  Control de Ruta
+                </h2>
+                <p className="mt-2 text-center text-sm text-slate-500">
+                  Panel de Control Administrador
+                </p>
+              </div>
+
+              {loginError && (
+                <div className="flex items-center gap-2 rounded-lg bg-red-50 p-4 text-sm text-red-600 border border-red-100">
+                  <AlertCircle className="h-5 w-5 shrink-0" />
+                  <span>{loginError}</span>
+                </div>
+              )}
+
+              <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+                <div className="space-y-4 rounded-md">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      Nombre de Usuario
+                    </label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                        <User className="h-5 w-5" />
+                      </span>
+                      <input
+                        type="text"
+                        required
+                        value={loginUsername}
+                        onChange={(e) => setLoginUsername(e.target.value)}
+                        className="block w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
+                        placeholder="Usuario admin"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-sm font-semibold text-slate-700">
+                        Contraseña
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowPasswordRecovery(true);
+                          setLoginError("");
+                        }}
+                        className="text-xs font-bold text-blue-600 hover:text-blue-700"
+                      >
+                        ¿Olvidaste tu contraseña?
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                        <Lock className="h-5 w-5" />
+                      </span>
+                      <input
+                        type="password"
+                        required
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
+                        className="block w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
+                        placeholder="••••••••"
+                      />
+                    </div>
                   </div>
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-sm font-semibold text-slate-700">
-                      Contraseña
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowPasswordRecovery(true);
-                        setLoginError("");
-                      }}
-                      className="text-xs font-bold text-blue-600 hover:text-blue-700"
-                    >
-                      ¿Olvidaste tu contraseña?
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-                      <Lock className="h-5 w-5" />
-                    </span>
-                    <input
-                      type="password"
-                      required
-                      value={loginPassword}
-                      onChange={(e) => setLoginPassword(e.target.value)}
-                      className="block w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
-                      placeholder="••••••••"
-                    />
-                  </div>
+                  <button
+                    type="submit"
+                    disabled={loadingLogin}
+                    className="flex w-full justify-center rounded-lg bg-blue-600 py-3 px-4 text-sm font-bold text-white shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:bg-blue-400"
+                  >
+                    {loadingLogin ? "Validando..." : "Ingresar"}
+                  </button>
                 </div>
-              </div>
+              </form>
+            </div>
+          )}
+        </div>
 
-              <div>
-                <button
-                  type="submit"
-                  disabled={loadingLogin}
-                  className="flex w-full justify-center rounded-lg bg-blue-600 py-3 px-4 text-sm font-bold text-white shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:bg-blue-400"
-                >
-                  {loadingLogin ? "Validando..." : "Ingresar"}
-                </button>
-              </div>
-            </form>
+        {/* Footer RAZE */}
+        <footer className="w-full max-w-lg mt-auto pt-6 pb-2">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-5 rounded-2xl bg-white/80 backdrop-blur-sm border border-slate-200/90 py-3 px-6 shadow-sm text-center">
+            <a
+              href="https://wa.me/56966735408"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center hover:opacity-80 transition-opacity"
+              title="RAZE Web Design / Programming"
+            >
+              <img
+                src="/raze-logo.png"
+                alt="RAZE"
+                className="h-6 sm:h-7 w-auto object-contain"
+              />
+            </a>
+
+            <div className="hidden sm:block h-4 w-px bg-slate-300" />
+
+            <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-slate-600">
+              <span className="font-semibold text-slate-800">Andres Alquinta</span>
+              <span className="text-slate-300">•</span>
+              <a
+                href="https://wa.me/56966735408"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 font-semibold text-blue-600 hover:text-blue-700 hover:underline transition-colors"
+              >
+                <Phone className="h-3.5 w-3.5 text-blue-600" />
+                <span>+56 9 6673 5408</span>
+              </a>
+            </div>
           </div>
-        )}
+        </footer>
       </div>
     );
   }
