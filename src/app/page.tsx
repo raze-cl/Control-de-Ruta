@@ -355,6 +355,10 @@ export default function HomePage() {
     ]
   });
   const [savingSafetyVideo, setSavingSafetyVideo] = useState(false);
+  const [videoFileUploading, setVideoFileUploading] = useState(false);
+  const [videoFileProgress, setVideoFileProgress] = useState(0);
+  const [videoFileSizeMb, setVideoFileSizeMb] = useState<number | null>(null);
+  const [showOptimizationGuide, setShowOptimizationGuide] = useState(false);
   const [selectedPointDetailForModal, setSelectedPointDetailForModal] = useState<{ point: RoutePointDetail; route: RouteRecord; index: number } | null>(null);
 
   // Faenas Start / End QR Modal State
@@ -966,8 +970,70 @@ export default function HomePage() {
     }
   };
 
+  const handleVideoFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const sizeMb = parseFloat((file.size / (1024 * 1024)).toFixed(1));
+    setVideoFileSizeMb(sizeMb);
+
+    // Read duration automatically via HTML5 video element
+    try {
+      const tempVideo = document.createElement("video");
+      tempVideo.preload = "metadata";
+      tempVideo.onloadedmetadata = () => {
+        window.URL.revokeObjectURL(tempVideo.src);
+        const durationSec = Math.round(tempVideo.duration);
+        if (durationSec && !isNaN(durationSec)) {
+          setSafetyVideoForm(prev => ({ ...prev, duracion_segundos: durationSec }));
+        }
+      };
+      tempVideo.src = URL.createObjectURL(file);
+    } catch (err) {
+      console.warn("Could not read video metadata duration:", err);
+    }
+
+    // Upload to Supabase Storage bucket 'safety_videos'
+    setVideoFileUploading(true);
+    setVideoFileProgress(35);
+    try {
+      const fileExt = file.name.split(".").pop()?.toLowerCase() || "mp4";
+      const cleanCode = (safetyVideoForm.codigo || "VID").replace(/[^a-zA-Z0-9_-]/g, "");
+      const fileName = `${cleanCode}_${Date.now()}.${fileExt}`;
+      const filePath = `${fileName}`;
+
+      setVideoFileProgress(65);
+      const { error: uploadError } = await supabase.storage
+        .from("safety_videos")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      setVideoFileProgress(95);
+      const { data: publicUrlData } = supabase.storage
+        .from("safety_videos")
+        .getPublicUrl(filePath);
+
+      setSafetyVideoForm(prev => ({
+        ...prev,
+        video_url: publicUrlData.publicUrl
+      }));
+      setVideoFileProgress(100);
+    } catch (err: any) {
+      console.error("Error al subir video:", err);
+      alert("Error al subir video a Supabase: " + (err.message || err));
+    } finally {
+      setVideoFileUploading(false);
+    }
+  };
+
   const handleOpenCreateSafetyVideo = () => {
     setEditingSafetyVideo(null);
+    setVideoFileSizeMb(null);
+    setVideoFileProgress(0);
     const nextCodeNum = safetyVideos.length + 1;
     const nextCode = `SAF-${nextCodeNum.toString().padStart(2, "0")}`;
     setSafetyVideoForm({
@@ -988,6 +1054,8 @@ export default function HomePage() {
 
   const handleOpenEditSafetyVideo = (video: SafetyVideo) => {
     setEditingSafetyVideo(video);
+    setVideoFileSizeMb(null);
+    setVideoFileProgress(0);
     const existingQuestions = video.safety_video_questions && video.safety_video_questions.length > 0
       ? video.safety_video_questions.map(q => ({
           id: q.id,
@@ -8953,18 +9021,117 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                 />
               </div>
 
-              <div>
-                <label className="block font-bold text-slate-700 uppercase text-[10px] mb-1">
-                  URL del Video (MP4 / CDN) *
-                </label>
-                <input
-                  type="url"
-                  required
-                  placeholder="https://.../video.mp4"
-                  value={safetyVideoForm.video_url}
-                  onChange={(e) => setSafetyVideoForm({ ...safetyVideoForm, video_url: e.target.value })}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-1 focus:ring-blue-500"
-                />
+              {/* Video File Uploader & URL Section */}
+              <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div className="flex items-center justify-between">
+                  <label className="block font-bold text-slate-800 uppercase text-[10px]">
+                    Archivo de Video (Subir a Supabase Storage)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowOptimizationGuide(!showOptimizationGuide)}
+                    className="text-[11px] text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1"
+                  >
+                    <span>💡 {showOptimizationGuide ? "Ocultar guía de optimización" : "¿Cómo optimizar videos? (Guía)"}</span>
+                  </button>
+                </div>
+
+                {/* Direct File Selector */}
+                <div className="flex flex-col sm:flex-row items-center gap-3">
+                  <label className="w-full sm:w-auto shrink-0 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-lg cursor-pointer transition-colors shadow-sm">
+                    <Upload className="h-4 w-4" />
+                    <span>{videoFileUploading ? "Subiendo..." : "Seleccionar Video MP4"}</span>
+                    <input
+                      type="file"
+                      accept="video/mp4,video/quicktime,video/webm"
+                      disabled={videoFileUploading}
+                      onChange={handleVideoFileSelect}
+                      className="hidden"
+                    />
+                  </label>
+
+                  <div className="flex-1 w-full text-xs text-slate-500">
+                    {videoFileUploading ? (
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[10px] font-bold text-blue-600">
+                          <span>Subiendo video a Supabase...</span>
+                          <span>{videoFileProgress}%</span>
+                        </div>
+                        <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${videoFileProgress}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : videoFileSizeMb !== null ? (
+                      <div className="flex items-center gap-2">
+                        {videoFileSizeMb > 30 ? (
+                          <span className="inline-flex items-center gap-1 text-amber-700 font-semibold bg-amber-50 px-2 py-1 rounded border border-amber-200">
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                            Peso detectado: {videoFileSizeMb} MB (Pesado. Te recomendamos comprimirlo a menos de 25 MB).
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-green-700 font-semibold bg-green-50 px-2 py-1 rounded border border-green-200">
+                            <CheckCircle className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                            Video optimizado: {videoFileSizeMb} MB (Tamaño ideal para faena).
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span>Formatos admitidos: MP4, MOV, WebM (ideal 720p HD, máx 25 MB).</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Collapsible Optimization Guide */}
+                {showOptimizationGuide && (
+                  <div className="p-3.5 bg-blue-50/80 rounded-lg border border-blue-200 text-xs text-blue-900 space-y-2">
+                    <p className="font-bold flex items-center gap-1.5 text-blue-800">
+                      <span>🎯 Parámetros recomendados para videos de faena:</span>
+                    </p>
+                    <ul className="list-disc list-inside space-y-1 text-[11px] text-blue-800/90 pl-1">
+                      <li><strong>Resolución:</strong> 720p (1280x720) - Suficiente nitidez para celulares sin sobrecargar la red.</li>
+                      <li><strong>Peso meta:</strong> Entre <strong>8 MB y 20 MB</strong> para un video de 5 minutos.</li>
+                      <li><strong>Códec:</strong> H.264 / AAC en formato .mp4 (máxima compatibilidad móvil).</li>
+                    </ul>
+                    <div className="pt-2 border-t border-blue-200/80 text-[11px] text-blue-900 flex flex-wrap gap-2 items-center">
+                      <span className="font-bold">Herramientas gratuitas recomendadas:</span>
+                      <a
+                        href="https://www.freeconvert.com/video-compressor"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline hover:text-blue-700 font-medium"
+                      >
+                        FreeConvert (Online) ↗
+                      </a>
+                      <span>•</span>
+                      <a
+                        href="https://handbrake.fr/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline hover:text-blue-700 font-medium"
+                      >
+                        HandBrake (Preset Fast 720p) ↗
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                {/* Generated or custom URL */}
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase text-[9px] mb-1">
+                    URL del Video (Completada automáticamente al subir) *
+                  </label>
+                  <input
+                    type="url"
+                    required
+                    placeholder="https://.../video.mp4"
+                    value={safetyVideoForm.video_url}
+                    onChange={(e) => setSafetyVideoForm({ ...safetyVideoForm, video_url: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs bg-white focus:ring-1 focus:ring-blue-500 font-mono text-[11px]"
+                  />
+                </div>
               </div>
 
               {/* Questions Section */}
