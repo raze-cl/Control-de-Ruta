@@ -8887,10 +8887,14 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                   <strong>Declaración:</strong> El trabajador certifica haber visualizado la totalidad del video de seguridad, comprendido las directrices preventivas impartidas y respondido la evaluación bajo su responsabilidad individual.
                 </div>
 
-                <div className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-300 bg-slate-50 w-48 shrink-0">
+                <div className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-300 bg-white w-64 min-h-[105px] shrink-0 shadow-xs">
                   <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Firma del Trabajador</p>
                   {selectedInductionForModal.firma_url ? (
-                    <img src={selectedInductionForModal.firma_url} alt="Firma" className="h-12 w-auto object-contain" />
+                    <img
+                      src={selectedInductionForModal.firma_url}
+                      alt="Firma"
+                      className="h-20 w-full object-contain"
+                    />
                   ) : (
                     <span className="text-xs italic text-slate-400">Sin firma</span>
                   )}
