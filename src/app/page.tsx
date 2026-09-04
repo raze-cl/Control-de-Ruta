@@ -63,7 +63,13 @@ import {
   RotateCcw,
   RefreshCw,
   Camera,
-  Phone
+  Phone,
+  ShieldCheck,
+  Video,
+  Play,
+  Award,
+  FileCheck,
+  HelpCircle
 } from "lucide-react";
 
 interface AppUser {
@@ -190,6 +196,57 @@ interface AppNotification {
   leida: boolean;
 }
 
+interface SafetyVideoQuestion {
+  id?: string;
+  video_id?: string;
+  pregunta: string;
+  opciones: string[];
+  respuesta_correcta: number;
+  orden?: number;
+}
+
+interface SafetyVideo {
+  id: string;
+  codigo: string;
+  titulo: string;
+  descripcion: string;
+  duracion_segundos: number;
+  video_url: string;
+  thumbnail_url?: string;
+  activo: boolean;
+  created_at?: string;
+  safety_video_questions?: SafetyVideoQuestion[];
+}
+
+interface DailySafetyInduction {
+  id: string;
+  user_id: string;
+  video_id: string;
+  fecha: string;
+  hora_inicio: string;
+  hora_fin: string;
+  video_completado: boolean;
+  respuestas: {
+    pregunta: string;
+    seleccionada: string;
+    correcta: boolean;
+  }[];
+  puntaje: number;
+  firma_url: string;
+  pdf_certificado_url?: string;
+  created_at: string;
+  app_users?: {
+    nombre: string;
+    rut: string;
+    cargo: string;
+  };
+  safety_videos?: {
+    codigo: string;
+    titulo: string;
+    duracion_segundos: number;
+  };
+}
+
 const MANDATORY_DOCS = [
   "Cédula Identidad",
   "Licencia Municipal",
@@ -258,6 +315,46 @@ export default function HomePage() {
   const [dashboardFaenaFilter, setDashboardFaenaFilter] = useState("");
   const [dashboardDatePreset, setDashboardDatePreset] = useState("all");
   const [selectedRouteForEvidenceModal, setSelectedRouteForEvidenceModal] = useState<RouteRecord | null>(null);
+
+  // Safety Talks / Charlas de Seguridad State
+  const [safetyVideos, setSafetyVideos] = useState<SafetyVideo[]>([]);
+  const [safetyInductions, setSafetyInductions] = useState<DailySafetyInduction[]>([]);
+  const [loadingSafetyTalks, setLoadingSafetyTalks] = useState(false);
+  const [safetySubTab, setSafetySubTab] = useState<"inducciones" | "videos">("inducciones");
+  const [safetyFilterDate, setSafetyFilterDate] = useState("");
+  const [safetyFilterWorker, setSafetyFilterWorker] = useState("");
+  const [safetyFilterVideo, setSafetyFilterVideo] = useState("");
+  const [selectedInductionForModal, setSelectedInductionForModal] = useState<DailySafetyInduction | null>(null);
+  const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
+  const [isSafetyVideoModalOpen, setIsSafetyVideoModalOpen] = useState(false);
+  const [editingSafetyVideo, setEditingSafetyVideo] = useState<SafetyVideo | null>(null);
+  const [safetyVideoForm, setSafetyVideoForm] = useState<{
+    codigo: string;
+    titulo: string;
+    descripcion: string;
+    duracion_segundos: number;
+    video_url: string;
+    activo: boolean;
+    questions: {
+      id?: string;
+      pregunta: string;
+      opciones: string[];
+      respuesta_correcta: number;
+    }[];
+  }>({
+    codigo: "",
+    titulo: "",
+    descripcion: "",
+    duracion_segundos: 300,
+    video_url: "",
+    activo: true,
+    questions: [
+      { pregunta: "", opciones: ["", "", ""], respuesta_correcta: 0 },
+      { pregunta: "", opciones: ["", "", ""], respuesta_correcta: 0 },
+      { pregunta: "", opciones: ["", "", ""], respuesta_correcta: 0 }
+    ]
+  });
+  const [savingSafetyVideo, setSavingSafetyVideo] = useState(false);
   const [selectedPointDetailForModal, setSelectedPointDetailForModal] = useState<{ point: RoutePointDetail; route: RouteRecord; index: number } | null>(null);
 
   // Faenas Start / End QR Modal State
@@ -839,6 +936,188 @@ export default function HomePage() {
     }
   };
 
+  // Safety Talks / Charlas de Seguridad Functions
+  const fetchSafetyVideos = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("safety_videos")
+        .select("*, safety_video_questions(*)")
+        .order("codigo", { ascending: true });
+      if (error) throw error;
+      setSafetyVideos(data || []);
+    } catch (err: any) {
+      console.error("Error fetching safety videos:", err.message);
+    }
+  };
+
+  const fetchSafetyInductions = async () => {
+    try {
+      setLoadingSafetyTalks(true);
+      const { data, error } = await supabase
+        .from("daily_safety_inductions")
+        .select("*, app_users(nombre, rut, cargo), safety_videos(codigo, titulo, duracion_segundos)")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setSafetyInductions(data || []);
+    } catch (err: any) {
+      console.error("Error fetching safety inductions:", err.message);
+    } finally {
+      setLoadingSafetyTalks(false);
+    }
+  };
+
+  const handleOpenCreateSafetyVideo = () => {
+    setEditingSafetyVideo(null);
+    const nextCodeNum = safetyVideos.length + 1;
+    const nextCode = `SAF-${nextCodeNum.toString().padStart(2, "0")}`;
+    setSafetyVideoForm({
+      codigo: nextCode,
+      titulo: "",
+      descripcion: "",
+      duracion_segundos: 300,
+      video_url: "",
+      activo: true,
+      questions: [
+        { pregunta: "", opciones: ["", "", ""], respuesta_correcta: 0 },
+        { pregunta: "", opciones: ["", "", ""], respuesta_correcta: 0 },
+        { pregunta: "", opciones: ["", "", ""], respuesta_correcta: 0 }
+      ]
+    });
+    setIsSafetyVideoModalOpen(true);
+  };
+
+  const handleOpenEditSafetyVideo = (video: SafetyVideo) => {
+    setEditingSafetyVideo(video);
+    const existingQuestions = video.safety_video_questions && video.safety_video_questions.length > 0
+      ? video.safety_video_questions.map(q => ({
+          id: q.id,
+          pregunta: q.pregunta,
+          opciones: Array.isArray(q.opciones) ? [...q.opciones] : ["", "", ""],
+          respuesta_correcta: q.respuesta_correcta ?? 0
+        }))
+      : [
+          { pregunta: "", opciones: ["", "", ""], respuesta_correcta: 0 },
+          { pregunta: "", opciones: ["", "", ""], respuesta_correcta: 0 },
+          { pregunta: "", opciones: ["", "", ""], respuesta_correcta: 0 }
+        ];
+
+    setSafetyVideoForm({
+      codigo: video.codigo,
+      titulo: video.titulo,
+      descripcion: video.descripcion || "",
+      duracion_segundos: video.duracion_segundos || 300,
+      video_url: video.video_url,
+      activo: video.activo ?? true,
+      questions: existingQuestions
+    });
+    setIsSafetyVideoModalOpen(true);
+  };
+
+  const handleSaveSafetyVideo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!safetyVideoForm.codigo.trim() || !safetyVideoForm.titulo.trim() || !safetyVideoForm.video_url.trim()) {
+      alert("Por favor complete el código, título y la URL del video.");
+      return;
+    }
+
+    setSavingSafetyVideo(true);
+    try {
+      let savedVideoId: string;
+      if (editingSafetyVideo) {
+        const { error } = await supabase
+          .from("safety_videos")
+          .update({
+            codigo: safetyVideoForm.codigo.trim().toUpperCase(),
+            titulo: safetyVideoForm.titulo.trim(),
+            descripcion: safetyVideoForm.descripcion.trim(),
+            duracion_segundos: safetyVideoForm.duracion_segundos,
+            video_url: safetyVideoForm.video_url.trim(),
+            activo: safetyVideoForm.activo
+          })
+          .eq("id", editingSafetyVideo.id);
+        if (error) throw error;
+        savedVideoId = editingSafetyVideo.id;
+        // Clean questions to re-insert
+        await supabase.from("safety_video_questions").delete().eq("video_id", savedVideoId);
+      } else {
+        const { data, error } = await supabase
+          .from("safety_videos")
+          .insert({
+            codigo: safetyVideoForm.codigo.trim().toUpperCase(),
+            titulo: safetyVideoForm.titulo.trim(),
+            descripcion: safetyVideoForm.descripcion.trim(),
+            duracion_segundos: safetyVideoForm.duracion_segundos,
+            video_url: safetyVideoForm.video_url.trim(),
+            activo: safetyVideoForm.activo
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        savedVideoId = data.id;
+      }
+
+      // Insert questions
+      const validQuestions = safetyVideoForm.questions.filter(q => q.pregunta.trim().length > 0);
+      if (validQuestions.length > 0) {
+        const questionsToInsert = validQuestions.map((q, idx) => ({
+          video_id: savedVideoId,
+          pregunta: q.pregunta.trim(),
+          opciones: q.opciones.map(o => o.trim()),
+          respuesta_correcta: q.respuesta_correcta,
+          orden: idx + 1
+        }));
+        const { error: qError } = await supabase.from("safety_video_questions").insert(questionsToInsert);
+        if (qError) throw qError;
+      }
+
+      await fetchSafetyVideos();
+      setIsSafetyVideoModalOpen(false);
+    } catch (err: any) {
+      console.error("Error al guardar video de seguridad:", err);
+      alert("Error al guardar: " + (err.message || err));
+    } finally {
+      setSavingSafetyVideo(false);
+    }
+  };
+
+  const handleToggleSafetyVideoActive = async (video: SafetyVideo) => {
+    try {
+      const { error } = await supabase
+        .from("safety_videos")
+        .update({ activo: !video.activo })
+        .eq("id", video.id);
+      if (error) throw error;
+      setSafetyVideos(prev => prev.map(v => v.id === video.id ? { ...v, activo: !v.activo } : v));
+    } catch (err: any) {
+      console.error("Error al cambiar estado de video:", err);
+      alert("Error: " + err.message);
+    }
+  };
+
+  const handleDeleteSafetyVideo = async (videoId: string) => {
+    if (!confirm("¿Está seguro de que desea eliminar este video de seguridad y sus preguntas asociadas?")) return;
+    try {
+      const { error } = await supabase.from("safety_videos").delete().eq("id", videoId);
+      if (error) throw error;
+      setSafetyVideos(prev => prev.filter(v => v.id !== videoId));
+    } catch (err: any) {
+      console.error("Error al eliminar video:", err);
+      alert("Error al eliminar: " + err.message);
+    }
+  };
+
+  const handleDeleteSafetyInduction = async (inductionId: string) => {
+    if (!confirm("¿Está seguro de eliminar este registro de inducción?")) return;
+    try {
+      const { error } = await supabase.from("daily_safety_inductions").delete().eq("id", inductionId);
+      if (error) throw error;
+      setSafetyInductions(prev => prev.filter(i => i.id !== inductionId));
+    } catch (err: any) {
+      console.error("Error al eliminar inducción:", err);
+      alert("Error al eliminar: " + err.message);
+    }
+  };
+
   // Toggle notification read status in Supabase
   const toggleNotificationRead = async (id: string, currentReadStatus: boolean) => {
     try {
@@ -936,6 +1215,9 @@ export default function HomePage() {
     } else if (activeTab === "route_records") {
       fetchRouteRecords();
       fetchFaenas();
+    } else if (activeTab === "safety_talks") {
+      fetchSafetyVideos();
+      fetchSafetyInductions();
     }
   }, [activeTab, isLoggedIn]);
 
@@ -2584,17 +2866,30 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
         {/* Navigation Menu */}
         <nav className="flex-1 space-y-1 px-4 py-6">
           {currentAdmin?.tipo_usuario === "cliente" ? (
-            <button
-              onClick={() => setActiveTab("dashboard")}
-              className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
-                activeTab === "dashboard"
-                  ? "bg-blue-600 text-white shadow"
-                  : "text-slate-400 hover:bg-slate-800 hover:text-white"
-              }`}
-            >
-              <LayoutDashboard className="h-5 w-5 shrink-0" />
-              {isSidebarExpanded && <span>Dashboard</span>}
-            </button>
+            <>
+              <button
+                onClick={() => setActiveTab("dashboard")}
+                className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+                  activeTab === "dashboard"
+                    ? "bg-blue-600 text-white shadow"
+                    : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                }`}
+              >
+                <LayoutDashboard className="h-5 w-5 shrink-0" />
+                {isSidebarExpanded && <span>Dashboard</span>}
+              </button>
+              <button
+                onClick={() => setActiveTab("safety_talks")}
+                className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+                  activeTab === "safety_talks"
+                    ? "bg-blue-600 text-white shadow"
+                    : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                }`}
+              >
+                <ShieldCheck className="h-5 w-5 shrink-0" />
+                {isSidebarExpanded && <span>Charlas de Seguridad</span>}
+              </button>
+            </>
           ) : (
             <>
               <button
@@ -2696,6 +2991,18 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                 <Clock className="h-5 w-5 shrink-0" />
                 {isSidebarExpanded && <span>Registros de Rutas</span>}
               </button>
+
+              <button
+                onClick={() => setActiveTab("safety_talks")}
+                className={`flex w-full items-center gap-3 rounded-lg py-2.5 px-3 text-sm font-medium transition-colors ${
+                  activeTab === "safety_talks"
+                    ? "bg-blue-600 text-white shadow"
+                    : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                }`}
+              >
+                <ShieldCheck className="h-5 w-5 shrink-0" />
+                {isSidebarExpanded && <span>Charlas de Seguridad</span>}
+              </button>
             </>
           )}
         </nav>
@@ -2751,6 +3058,14 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
               ? "Gestión de Faenas y Puntos de Rutas"
               : activeTab === "checklists"
               ? "Configuración de Encuestas / Checklists"
+              : activeTab === "notifications"
+              ? "Centro de Alertas y Notificaciones"
+              : activeTab === "dashboard"
+              ? "Dashboard de Control Operacional"
+              : activeTab === "route_records"
+              ? "Registros de Inicio y Término de Ruta"
+              : activeTab === "safety_talks"
+              ? "Charlas de Seguridad e Inducción Diaria"
               : "Estadísticas y Monitoreo"}
           </h1>
           <div className="flex items-center gap-4">
@@ -5592,6 +5907,349 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
 
             </div>
           )}
+
+          {/* CHARLAS DE SEGURIDAD TAB */}
+          {activeTab === "safety_talks" && (
+            <div className="space-y-6">
+              {/* Top Banner & Subtabs Switcher */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                      <ShieldCheck className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold text-slate-800">
+                        Charlas de Seguridad e Inducción Diaria
+                      </h2>
+                      <p className="text-xs text-slate-500">
+                        Supervisión de cumplimiento de charlas de 5 minutos, evaluación de preguntas y certificados firmados.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 border border-slate-200">
+                    <button
+                      onClick={() => setSafetySubTab("inducciones")}
+                      className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                        safetySubTab === "inducciones"
+                          ? "bg-white text-blue-600 shadow-sm"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      Registro Diario ({safetyInductions.length})
+                    </button>
+                    <button
+                      onClick={() => setSafetySubTab("videos")}
+                      className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                        safetySubTab === "videos"
+                          ? "bg-white text-blue-600 shadow-sm"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      Catálogo de Videos ({safetyVideos.length})
+                    </button>
+                  </div>
+
+                  {safetySubTab === "videos" && currentAdmin?.tipo_usuario !== "cliente" && (
+                    <button
+                      onClick={handleOpenCreateSafetyVideo}
+                      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition-colors"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>Nuevo Video</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* SUBTAB 1: REGISTRO DIARIO DE INDUCCIONES */}
+              {safetySubTab === "inducciones" && (
+                <div className="space-y-6">
+                  {/* Summary KPI Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                        <FileCheck className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Inducciones</p>
+                        <p className="text-2xl font-black text-slate-800 mt-1">{safetyInductions.length}</p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-green-50 text-green-600">
+                        <CheckCircle className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Inducciones Hoy</p>
+                        <p className="text-2xl font-black text-green-700 mt-1">
+                          {safetyInductions.filter(i => i.fecha === new Date().toISOString().split("T")[0]).length}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+                        <Award className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Cumplimiento Cuestionario</p>
+                        <p className="text-2xl font-black text-indigo-700 mt-1">100%</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Filters Bar */}
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Buscar por trabajador o RUT..."
+                          value={safetyFilterWorker}
+                          onChange={(e) => setSafetyFilterWorker(e.target.value)}
+                          className="pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs w-64 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                        <span>Fecha:</span>
+                        <input
+                          type="date"
+                          value={safetyFilterDate}
+                          onChange={(e) => setSafetyFilterDate(e.target.value)}
+                          className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                        <span>Video:</span>
+                        <select
+                          value={safetyFilterVideo}
+                          onChange={(e) => setSafetyFilterVideo(e.target.value)}
+                          className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                        >
+                          <option value="">Todos los videos</option>
+                          {safetyVideos.map(v => (
+                            <option key={v.id} value={v.id}>{v.codigo} - {v.titulo}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {(safetyFilterWorker || safetyFilterDate || safetyFilterVideo) && (
+                      <button
+                        onClick={() => {
+                          setSafetyFilterWorker("");
+                          setSafetyFilterDate("");
+                          setSafetyFilterVideo("");
+                        }}
+                        className="text-xs text-blue-600 font-semibold hover:underline"
+                      >
+                        Limpiar filtros
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Table of Inductions */}
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    {loadingSafetyTalks ? (
+                      <div className="p-12 text-center text-slate-400 font-medium animate-pulse">
+                        Cargando inducciones de seguridad...
+                      </div>
+                    ) : (() => {
+                      const filtered = safetyInductions.filter(i => {
+                        if (safetyFilterDate && i.fecha !== safetyFilterDate) return false;
+                        if (safetyFilterVideo && i.video_id !== safetyFilterVideo) return false;
+                        if (safetyFilterWorker) {
+                          const wName = i.app_users?.nombre?.toLowerCase() || "";
+                          const wRut = i.app_users?.rut || "";
+                          const query = safetyFilterWorker.toLowerCase();
+                          if (!wName.includes(query) && !wRut.includes(query)) return false;
+                        }
+                        return true;
+                      });
+
+                      if (filtered.length === 0) {
+                        return (
+                          <div className="p-12 text-center text-slate-400">
+                            No se encontraron registros de inducción con los filtros seleccionados.
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs text-slate-600">
+                            <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                              <tr>
+                                <th className="px-6 py-3.5">Fecha y Hora</th>
+                                <th className="px-6 py-3.5">Trabajador</th>
+                                <th className="px-6 py-3.5">Video / Módulo</th>
+                                <th className="px-6 py-3.5 text-center">Evaluación</th>
+                                <th className="px-6 py-3.5 text-center">Firma Digital</th>
+                                <th className="px-6 py-3.5 text-center">Acciones</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {filtered.map(ind => (
+                                <tr key={ind.id} className="hover:bg-slate-50 transition-colors">
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <div className="font-bold text-slate-800">{ind.fecha}</div>
+                                    <div className="text-[11px] text-slate-400 mt-0.5">
+                                      {ind.hora_inicio?.slice(0, 5)} - {ind.hora_fin?.slice(0, 5)} hrs
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <div className="font-semibold text-slate-800">{ind.app_users?.nombre || "Trabajador"}</div>
+                                    <div className="text-[11px] text-slate-400">RUT: {ind.app_users?.rut || "N/A"} • {ind.app_users?.cargo || "Operador"}</div>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <span className="inline-block bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded text-[10px] mr-1.5 border border-blue-100">
+                                      {ind.safety_videos?.codigo || "SAF"}
+                                    </span>
+                                    <span className="font-medium text-slate-700">{ind.safety_videos?.titulo || "Charla de Seguridad"}</span>
+                                  </td>
+                                  <td className="px-6 py-4 text-center">
+                                    <span className="inline-flex items-center gap-1 bg-green-50 text-green-700 font-bold px-2.5 py-1 rounded-full text-[11px] border border-green-100">
+                                      <CheckCircle className="h-3.5 w-3.5 text-green-600" />
+                                      <span>100% Aprobado</span>
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4 text-center">
+                                    {ind.firma_url ? (
+                                      <div className="inline-flex items-center justify-center border border-slate-200 rounded-lg p-1 bg-slate-50/50 shadow-2xs">
+                                        <img src={ind.firma_url} alt="Firma" className="h-6 w-16 object-contain" />
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-400 italic text-[11px]">Sin firma</span>
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4 text-center">
+                                    <div className="flex items-center justify-center gap-1.5">
+                                      <button
+                                        onClick={() => setSelectedInductionForModal(ind)}
+                                        className="inline-flex items-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg font-bold text-xs transition-colors"
+                                        title="Ver certificado oficial de inducción"
+                                      >
+                                        <FileCheck className="h-4 w-4" />
+                                        <span>Certificado</span>
+                                      </button>
+                                      {currentAdmin?.tipo_usuario !== "cliente" && (
+                                        <button
+                                          onClick={() => handleDeleteSafetyInduction(ind.id)}
+                                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                          title="Eliminar registro"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* SUBTAB 2: CATALOGO DE VIDEOS Y CUESTIONARIOS */}
+              {safetySubTab === "videos" && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {safetyVideos.map(video => {
+                    const qCount = video.safety_video_questions?.length || 0;
+                    const mins = Math.floor((video.duracion_segundos || 300) / 60);
+                    const secs = ((video.duracion_segundos || 300) % 60).toString().padStart(2, "0");
+
+                    return (
+                      <div key={video.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col justify-between hover:shadow-md transition-shadow">
+                        <div>
+                          {/* Card Top */}
+                          <div className="flex items-center justify-between gap-2 mb-3">
+                            <span className="bg-blue-600 text-white font-black text-xs px-2.5 py-1 rounded-lg">
+                              {video.codigo}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                                ⏱ {mins}:{secs} min
+                              </span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                video.activo
+                                  ? "bg-green-50 text-green-700 border-green-200"
+                                  : "bg-slate-100 text-slate-500 border-slate-200"
+                              }`}>
+                                {video.activo ? "Activo" : "Pausado"}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Title & Desc */}
+                          <h3 className="font-bold text-base text-slate-800 leading-snug">
+                            {video.titulo}
+                          </h3>
+                          <p className="text-xs text-slate-500 mt-2 line-clamp-2">
+                            {video.descripcion || "Sin descripción proporcionada."}
+                          </p>
+
+                          {/* Questions summary */}
+                          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2 text-xs font-semibold text-slate-600">
+                            <HelpCircle className="h-4 w-4 text-blue-500" />
+                            <span>{qCount} {qCount === 1 ? "pregunta de evaluación" : "preguntas de evaluación"}</span>
+                          </div>
+                        </div>
+
+                        {/* Card Bottom Actions */}
+                        <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                          <button
+                            onClick={() => setPreviewVideoUrl(video.video_url)}
+                            className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
+                          >
+                            <Play className="h-3.5 w-3.5" />
+                            <span>Previsualizar</span>
+                          </button>
+
+                          {currentAdmin?.tipo_usuario !== "cliente" && (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleToggleSafetyVideoActive(video)}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                title={video.activo ? "Pausar video" : "Activar video"}
+                              >
+                                {video.activo ? "⏸" : "▶"}
+                              </button>
+                              <button
+                                onClick={() => handleOpenEditSafetyVideo(video)}
+                                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                title="Editar video y preguntas"
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSafetyVideo(video.id)}
+                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                title="Eliminar video"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </main>
 
@@ -8066,6 +8724,356 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                   className="bg-red-650 hover:bg-red-750 text-white rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:bg-red-400"
                 >
                   {deletingNotification ? "Eliminando..." : "Eliminar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: VER CERTIFICADO OFICIAL DE INDUCCION */}
+      {selectedInductionForModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-slate-200 max-h-[92vh] flex flex-col font-sans overflow-hidden">
+            {/* Header Modal */}
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <ShieldCheck className="h-6 w-6 text-blue-400" />
+                <h3 className="font-bold text-base">Certificado Oficial de Charla de Seguridad</h3>
+              </div>
+              <button
+                onClick={() => setSelectedInductionForModal(null)}
+                className="text-slate-400 hover:text-white text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Certificate Body (Printable Sheet) */}
+            <div className="p-6 overflow-y-auto space-y-6 text-slate-800" id="certificate-print-area">
+              {/* Document Banner */}
+              <div className="border-b-2 border-slate-900 pb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-black text-slate-900 tracking-tight uppercase">
+                    KMC Servicios Industriales
+                  </h2>
+                  <p className="text-xs text-slate-500 font-semibold uppercase">
+                    Sistema de Control de Seguridad y Operaciones
+                  </p>
+                </div>
+                <div className="text-right">
+                  <span className="bg-blue-50 text-blue-800 text-[11px] font-bold px-2.5 py-1 rounded border border-blue-200">
+                    FOLIO: {selectedInductionForModal.id.slice(0, 8).toUpperCase()}
+                  </span>
+                  <p className="text-[10px] text-slate-400 mt-1">Fecha: {selectedInductionForModal.fecha}</p>
+                </div>
+              </div>
+
+              {/* Worker & Video Info Grid */}
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+                <div>
+                  <p className="text-slate-400 font-bold uppercase text-[10px]">Trabajador</p>
+                  <p className="font-bold text-slate-800 text-sm mt-0.5">{selectedInductionForModal.app_users?.nombre || "Trabajador"}</p>
+                  <p className="text-slate-600 mt-0.5">RUT: {selectedInductionForModal.app_users?.rut || "N/A"}</p>
+                  <p className="text-slate-500">Cargo: {selectedInductionForModal.app_users?.cargo || "Operador"}</p>
+                </div>
+
+                <div>
+                  <p className="text-slate-400 font-bold uppercase text-[10px]">Módulo de Seguridad Visto</p>
+                  <p className="font-bold text-blue-700 text-sm mt-0.5">
+                    [{selectedInductionForModal.safety_videos?.codigo}] {selectedInductionForModal.safety_videos?.titulo}
+                  </p>
+                  <p className="text-slate-600 mt-0.5">
+                    Horario de visualización: {selectedInductionForModal.hora_inicio?.slice(0, 5)} a {selectedInductionForModal.hora_fin?.slice(0, 5)} hrs
+                  </p>
+                  <p className="text-green-700 font-bold flex items-center gap-1 mt-0.5">
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    <span>Reproducción 100% completada</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Questions Answered */}
+              <div>
+                <h4 className="text-xs font-black uppercase text-slate-700 tracking-wider mb-3">
+                  Registro de Respuestas del Cuestionario
+                </h4>
+                <div className="space-y-2.5">
+                  {Array.isArray(selectedInductionForModal.respuestas) && selectedInductionForModal.respuestas.map((r, idx) => (
+                    <div key={idx} className="p-3 rounded-lg border border-slate-200 bg-white text-xs">
+                      <p className="font-bold text-slate-800">
+                        {idx + 1}. {r.pregunta}
+                      </p>
+                      <p className="text-green-700 font-semibold mt-1 flex items-center gap-1.5">
+                        <Check className="h-3.5 w-3.5 shrink-0" />
+                        <span>Respuesta: {r.seleccionada}</span>
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Legal Disclaimer & Signature */}
+              <div className="border-t border-slate-200 pt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="text-[11px] text-slate-500 max-w-sm leading-relaxed text-justify">
+                  <strong>Declaración:</strong> El trabajador certifica haber visualizado la totalidad del video de seguridad, comprendido las directrices preventivas impartidas y respondido la evaluación bajo su responsabilidad individual.
+                </div>
+
+                <div className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-300 bg-slate-50 w-48 shrink-0">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Firma del Trabajador</p>
+                  {selectedInductionForModal.firma_url ? (
+                    <img src={selectedInductionForModal.firma_url} alt="Firma" className="h-12 w-auto object-contain" />
+                  ) : (
+                    <span className="text-xs italic text-slate-400">Sin firma</span>
+                  )}
+                  <p className="text-[9px] text-slate-400 mt-1 border-t border-slate-200 w-full text-center pt-0.5">
+                    Validada Digitalmente
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Modal Actions */}
+            <div className="bg-slate-50 px-6 py-3.5 border-t border-slate-200 flex items-center justify-between shrink-0">
+              <button
+                onClick={() => window.print()}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shadow-sm"
+              >
+                <Printer className="h-4 w-4" />
+                <span>Imprimir / Exportar PDF</span>
+              </button>
+
+              <button
+                onClick={() => setSelectedInductionForModal(null)}
+                className="bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs px-4 py-2 rounded-xl transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: PREVISUALIZADOR DE VIDEO */}
+      {previewVideoUrl && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-black rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl border border-slate-800">
+            <div className="bg-slate-900 px-4 py-3 flex items-center justify-between text-white">
+              <span className="text-xs font-bold flex items-center gap-2">
+                <Video className="h-4 w-4 text-blue-400" />
+                Previsualizador de Video de Seguridad
+              </span>
+              <button onClick={() => setPreviewVideoUrl(null)} className="text-slate-400 hover:text-white">✕</button>
+            </div>
+            <div className="aspect-video bg-black flex items-center justify-center">
+              <video
+                src={previewVideoUrl}
+                controls
+                autoPlay
+                className="w-full h-full object-contain"
+              >
+                Tu navegador no soporta la reproducción de video.
+              </video>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CREAR / EDITAR VIDEO Y PREGUNTAS */}
+      {isSafetyVideoModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl border border-slate-200 max-h-[92vh] flex flex-col font-sans overflow-hidden">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-base">
+                {editingSafetyVideo ? "Editar Video de Seguridad" : "Nuevo Video de Seguridad"}
+              </h3>
+              <button
+                onClick={() => setIsSafetyVideoModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSafetyVideo} className="p-6 overflow-y-auto space-y-5 text-xs text-slate-700">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase text-[10px] mb-1">
+                    Código *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. SAF-06"
+                    value={safetyVideoForm.codigo}
+                    onChange={(e) => setSafetyVideoForm({ ...safetyVideoForm, codigo: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-1 focus:ring-blue-500 font-bold uppercase"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 uppercase text-[10px] mb-1">
+                    Duración Estimada (segundos)
+                  </label>
+                  <input
+                    type="number"
+                    min="30"
+                    max="600"
+                    value={safetyVideoForm.duracion_segundos}
+                    onChange={(e) => setSafetyVideoForm({ ...safetyVideoForm, duracion_segundos: parseInt(e.target.value) || 300 })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase text-[10px] mb-1">
+                  Título del Módulo *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej. Conducción con Nieve y Uso de Cadenas"
+                  value={safetyVideoForm.titulo}
+                  onChange={(e) => setSafetyVideoForm({ ...safetyVideoForm, titulo: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-1 focus:ring-blue-500 font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase text-[10px] mb-1">
+                  Descripción Preventiva
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Objetivos de la charla y puntos críticos a considerar..."
+                  value={safetyVideoForm.descripcion}
+                  onChange={(e) => setSafetyVideoForm({ ...safetyVideoForm, descripcion: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase text-[10px] mb-1">
+                  URL del Video (MP4 / CDN) *
+                </label>
+                <input
+                  type="url"
+                  required
+                  placeholder="https://.../video.mp4"
+                  value={safetyVideoForm.video_url}
+                  onChange={(e) => setSafetyVideoForm({ ...safetyVideoForm, video_url: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Questions Section */}
+              <div className="pt-3 border-t border-slate-200">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-bold text-slate-800 uppercase text-xs">
+                    Cuestionario de Evaluación (3 a 4 Preguntas)
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (safetyVideoForm.questions.length >= 5) {
+                        alert("Máximo 5 preguntas por video.");
+                        return;
+                      }
+                      setSafetyVideoForm({
+                        ...safetyVideoForm,
+                        questions: [
+                          ...safetyVideoForm.questions,
+                          { pregunta: "", opciones: ["", "", ""], respuesta_correcta: 0 }
+                        ]
+                      });
+                    }}
+                    className="text-[11px] font-bold text-blue-600 hover:underline"
+                  >
+                    + Agregar Pregunta
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {safetyVideoForm.questions.map((q, qIdx) => (
+                    <div key={qIdx} className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-slate-700 text-xs">Pregunta {qIdx + 1}</span>
+                        {safetyVideoForm.questions.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = safetyVideoForm.questions.filter((_, idx) => idx !== qIdx);
+                              setSafetyVideoForm({ ...safetyVideoForm, questions: updated });
+                            }}
+                            className="text-red-500 hover:text-red-700 text-xs"
+                          >
+                            Eliminar
+                          </button>
+                        )}
+                      </div>
+
+                      <input
+                        type="text"
+                        placeholder="Escriba la pregunta aquí..."
+                        value={q.pregunta}
+                        onChange={(e) => {
+                          const updated = [...safetyVideoForm.questions];
+                          updated[qIdx].pregunta = e.target.value;
+                          setSafetyVideoForm({ ...safetyVideoForm, questions: updated });
+                        }}
+                        className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:ring-1 focus:ring-blue-500 font-medium"
+                      />
+
+                      <div className="space-y-1.5 pl-2">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">Alternativas (Marque la correcta):</p>
+                        {q.opciones.map((opt, oIdx) => (
+                          <div key={oIdx} className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name={`correct_${qIdx}`}
+                              checked={q.respuesta_correcta === oIdx}
+                              onChange={() => {
+                                const updated = [...safetyVideoForm.questions];
+                                updated[qIdx].respuesta_correcta = oIdx;
+                                setSafetyVideoForm({ ...safetyVideoForm, questions: updated });
+                              }}
+                              className="text-blue-600"
+                            />
+                            <input
+                              type="text"
+                              placeholder={`Alternativa ${String.fromCharCode(65 + oIdx)}...`}
+                              value={opt}
+                              onChange={(e) => {
+                                const updated = [...safetyVideoForm.questions];
+                                updated[qIdx].opciones[oIdx] = e.target.value;
+                                setSafetyVideoForm({ ...safetyVideoForm, questions: updated });
+                              }}
+                              className="flex-1 border border-slate-300 rounded-md px-2 py-1 text-xs bg-white focus:ring-1 focus:ring-blue-500"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Submit Buttons */}
+              <div className="flex gap-3 justify-end pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsSafetyVideoModalOpen(false)}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg px-4 py-2 text-xs font-bold transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingSafetyVideo}
+                  className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-5 py-2 text-xs font-bold transition-colors disabled:bg-blue-400 flex items-center gap-1.5"
+                >
+                  {savingSafetyVideo ? "Guardando..." : "Guardar Video"}
                 </button>
               </div>
             </form>
