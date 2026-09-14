@@ -1819,13 +1819,20 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
 
   // Delete Faena
   const handleDeleteFaena = async (id: string) => {
-    if (!confirm("¿Estás seguro de que deseas eliminar esta faena? Se eliminarán todas sus rutas y puntos de control.")) return;
+    const faenaToDelete = faenas.find((f) => f.id === id);
+    if (!confirm(`¿Estás seguro de que deseas eliminar la faena "${faenaToDelete?.nombre || ""}"? Se eliminarán todas sus rutas, puntos de control y autorizaciones de pases asociadas.`)) return;
 
     try {
+      if (faenaToDelete?.nombre) {
+        await supabase.from("user_passes").delete().eq("faena_name", faenaToDelete.nombre);
+      }
       const { error } = await supabase.from("faenas").delete().eq("id", id);
       if (error) throw error;
 
       setFaenas(faenas.filter((f) => f.id !== id));
+      if (users.length > 0) {
+        users.forEach((u) => refreshUserDetails(u.id));
+      }
     } catch (err: any) {
       alert("Error al eliminar faena: " + err.message);
     }
@@ -2276,6 +2283,18 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
         }
         setSavingFaenaForm(false);
         return;
+      }
+
+      const newName = faenaFormData.nombre.trim();
+      const oldName = selectedFaena.nombre;
+      if (oldName && oldName !== newName) {
+        await supabase
+          .from("user_passes")
+          .update({ faena_name: newName })
+          .eq("faena_name", oldName);
+        if (users.length > 0) {
+          users.forEach((u) => refreshUserDetails(u.id));
+        }
       }
 
       setIsFaenaEditModalOpen(false);
