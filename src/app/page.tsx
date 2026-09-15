@@ -69,7 +69,8 @@ import {
   Play,
   Award,
   FileCheck,
-  HelpCircle
+  HelpCircle,
+  Settings
 } from "lucide-react";
 
 interface AppUser {
@@ -97,6 +98,12 @@ interface Vehicle {
   modelo: string;
   anio: number;
   habilitado: boolean;
+  created_at?: string;
+}
+
+interface VehicleType {
+  id: string;
+  nombre: string;
   created_at?: string;
 }
 
@@ -405,6 +412,15 @@ export default function HomePage() {
   const [vehicleFormError, setVehicleFormError] = useState("");
   const [savingVehicleForm, setSavingVehicleForm] = useState(false);
 
+  // Vehicle Types State
+  const [vehicleTypes, setVehicleTypes] = useState<VehicleType[]>([]);
+  const [loadingVehicleTypes, setLoadingVehicleTypes] = useState(true);
+  const [isManageVehicleTypesModalOpen, setIsManageVehicleTypesModalOpen] = useState(false);
+  const [newVehicleTypeName, setNewVehicleTypeName] = useState("");
+  const [editingVehicleType, setEditingVehicleType] = useState<{ id: string; nombre: string } | null>(null);
+  const [vehicleTypeError, setVehicleTypeError] = useState("");
+  const [savingVehicleType, setSavingVehicleType] = useState(false);
+
   // Faenas State
   const [faenas, setFaenas] = useState<Faena[]>([]);
   const [loadingFaenas, setLoadingFaenas] = useState(true);
@@ -552,6 +568,39 @@ export default function HomePage() {
       console.error("Error fetching vehicles:", err.message);
     } finally {
       setLoadingVehicles(false);
+    }
+  };
+
+  // Load vehicle types from Supabase
+  const fetchVehicleTypes = async () => {
+    setLoadingVehicleTypes(true);
+    try {
+      const { data, error } = await supabase
+        .from("vehicle_types")
+        .select("*")
+        .order("nombre", { ascending: true });
+
+      if (error) throw error;
+      if (data && data.length > 0) {
+        setVehicleTypes(data);
+      } else {
+        // Fallback default types
+        setVehicleTypes([
+          { id: "1", nombre: "Camioneta 4x4" },
+          { id: "2", nombre: "Camión Aljibe" },
+          { id: "3", nombre: "Camión Tolva" },
+          { id: "4", nombre: "Camión Pluma" },
+          { id: "5", nombre: "Bus" },
+          { id: "6", nombre: "Minibus" },
+          { id: "7", nombre: "Furgón" },
+          { id: "8", nombre: "Maquinaria Pesada" },
+          { id: "9", nombre: "Otro" },
+        ]);
+      }
+    } catch (err: any) {
+      console.error("Error fetching vehicle types:", err.message);
+    } finally {
+      setLoadingVehicleTypes(false);
     }
   };
 
@@ -1264,6 +1313,7 @@ export default function HomePage() {
       fetchFaenas();
     } else if (activeTab === "vehicles") {
       fetchVehicles();
+      fetchVehicleTypes();
     } else if (activeTab === "faenas") {
       fetchFaenas();
     } else if (activeTab === "checklists") {
@@ -1276,6 +1326,7 @@ export default function HomePage() {
     } else if (activeTab === "dashboard") {
       fetchUsers();
       fetchVehicles();
+      fetchVehicleTypes();
       fetchFaenas();
       fetchNotifications();
       fetchRouteRecords();
@@ -1879,10 +1930,13 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
 
   // Open Vehicle Create Modal
   const openVehicleCreateModal = () => {
+    if (vehicleTypes.length === 0) {
+      fetchVehicleTypes();
+    }
     setVehicleFormData({
       codigo: "",
       patente: "",
-      tipo_vehiculo: "Camioneta 4x4",
+      tipo_vehiculo: vehicleTypes.length > 0 ? vehicleTypes[0].nombre : "Camioneta 4x4",
       marca: "",
       modelo: "",
       anio: new Date().getFullYear(),
@@ -2203,6 +2257,155 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
       setVehicleFormError(err.message);
     } finally {
       setSavingVehicleForm(false);
+    }
+  };
+
+  // Submit Create Vehicle Type
+  const handleCreateVehicleType = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setVehicleTypeError("");
+    const trimmed = newVehicleTypeName.trim();
+    if (!trimmed) {
+      setVehicleTypeError("Por favor ingresa un nombre para el tipo de vehículo.");
+      return;
+    }
+
+    if (vehicleTypes.some((t) => t.nombre.toLowerCase() === trimmed.toLowerCase())) {
+      setVehicleTypeError("Este tipo de vehículo ya se encuentra registrado.");
+      return;
+    }
+
+    setSavingVehicleType(true);
+    try {
+      const { data, error } = await supabase
+        .from("vehicle_types")
+        .insert([{ nombre: trimmed }])
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === "23505") {
+          setVehicleTypeError("El tipo de vehículo ya se encuentra registrado.");
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      setNewVehicleTypeName("");
+      await fetchVehicleTypes();
+      // Auto-select this newly created type in the vehicle form
+      setVehicleFormData((prev) => ({ ...prev, tipo_vehiculo: trimmed }));
+    } catch (err: any) {
+      setVehicleTypeError(err.message || "Error al crear tipo de vehículo.");
+    } finally {
+      setSavingVehicleType(false);
+    }
+  };
+
+  // Submit Update Vehicle Type
+  const handleUpdateVehicleType = async (id: string, oldName: string, newName: string) => {
+    setVehicleTypeError("");
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      setVehicleTypeError("El nombre no puede estar vacío.");
+      return;
+    }
+
+    if (oldName.toLowerCase() === trimmed.toLowerCase()) {
+      setEditingVehicleType(null);
+      return;
+    }
+
+    if (vehicleTypes.some((t) => t.id !== id && t.nombre.toLowerCase() === trimmed.toLowerCase())) {
+      setVehicleTypeError("Ya existe otro tipo de vehículo con este nombre.");
+      return;
+    }
+
+    setSavingVehicleType(true);
+    try {
+      // 1. Update vehicle_types table
+      const { error: updateTypeError } = await supabase
+        .from("vehicle_types")
+        .update({ nombre: trimmed })
+        .eq("id", id);
+
+      if (updateTypeError) throw updateTypeError;
+
+      // 2. Cascade update in vehicles table
+      const { error: cascadeError } = await supabase
+        .from("vehicles")
+        .update({ tipo_vehiculo: trimmed })
+        .eq("tipo_vehiculo", oldName);
+
+      if (cascadeError) {
+        console.warn("Cascade update to vehicles warned:", cascadeError);
+      }
+
+      setEditingVehicleType(null);
+      await fetchVehicleTypes();
+      await fetchVehicles();
+
+      // If the current form has the old type selected, update it
+      setVehicleFormData((prev) =>
+        prev.tipo_vehiculo === oldName ? { ...prev, tipo_vehiculo: trimmed } : prev
+      );
+    } catch (err: any) {
+      setVehicleTypeError(err.message || "Error al actualizar tipo de vehículo.");
+    } finally {
+      setSavingVehicleType(false);
+    }
+  };
+
+  // Submit Delete Vehicle Type
+  const handleDeleteVehicleType = async (id: string, nombre: string) => {
+    setVehicleTypeError("");
+    // Count associated vehicles
+    const associatedCount = vehicles.filter(
+      (v) => (v.tipo_vehiculo || "").toLowerCase() === nombre.toLowerCase()
+    ).length;
+
+    if (associatedCount > 0) {
+      const confirmDelete = window.confirm(
+        `Hay ${associatedCount} vehículo(s) actualmente registrados con el tipo "${nombre}".\n\nSi lo eliminas, estos vehículos quedarán con tipo "Otro". ¿Deseas continuar?`
+      );
+      if (!confirmDelete) return;
+
+      try {
+        await supabase
+          .from("vehicles")
+          .update({ tipo_vehiculo: "Otro" })
+          .eq("tipo_vehiculo", nombre);
+      } catch (err: any) {
+        console.warn("Error reassigning vehicles:", err);
+      }
+    } else {
+      const confirmDelete = window.confirm(
+        `¿Estás seguro de que deseas eliminar el tipo de vehículo "${nombre}"?`
+      );
+      if (!confirmDelete) return;
+    }
+
+    setSavingVehicleType(true);
+    try {
+      const { error } = await supabase.from("vehicle_types").delete().eq("id", id);
+      if (error) throw error;
+
+      await fetchVehicleTypes();
+      await fetchVehicles();
+
+      // If currently selected in form, reset to first available or "Otro"
+      setVehicleFormData((prev) => {
+        if (prev.tipo_vehiculo.toLowerCase() === nombre.toLowerCase()) {
+          const fallback = vehicleTypes.find((t) => t.id !== id)?.nombre || "Otro";
+          return { ...prev, tipo_vehiculo: fallback };
+        }
+        return prev;
+      });
+    } catch (err: any) {
+      setVehicleTypeError(err.message || "Error al eliminar tipo de vehículo.");
+    } finally {
+      setSavingVehicleType(false);
     }
   };
 
@@ -3576,14 +3779,27 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                     className="block w-full rounded-lg border border-slate-300 py-2 pl-10 pr-3 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 sm:text-sm"
                   />
                 </div>
-                {/* Add Vehicle Button */}
-                <button
-                  onClick={openVehicleCreateModal}
-                  className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 shadow transition-colors text-sm"
-                >
-                  <Plus className="h-5 w-5" />
-                  Agregar Vehículo
-                </button>
+                {/* Action Buttons */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setVehicleTypeError("");
+                      setIsManageVehicleTypesModalOpen(true);
+                    }}
+                    className="flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold py-2 px-3 shadow-sm transition-colors text-sm"
+                    title="Administrar tipos de vehículos disponibles"
+                  >
+                    <Settings className="h-4 w-4 text-slate-500" />
+                    <span>Tipos de Vehículo</span>
+                  </button>
+                  <button
+                    onClick={openVehicleCreateModal}
+                    className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 shadow transition-colors text-sm"
+                  >
+                    <Plus className="h-5 w-5" />
+                    <span>Agregar Vehículo</span>
+                  </button>
+                </div>
               </div>
 
               {/* Table Data Card */}
@@ -6734,21 +6950,33 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Vehículo *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700 uppercase">Tipo de Vehículo *</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVehicleTypeError("");
+                      setIsManageVehicleTypesModalOpen(true);
+                    }}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 hover:underline cursor-pointer"
+                  >
+                    <Settings className="h-3 w-3" />
+                    <span>Gestionar Tipos</span>
+                  </button>
+                </div>
                 <select
                   value={vehicleFormData.tipo_vehiculo}
                   onChange={(e) => setVehicleFormData({ ...vehicleFormData, tipo_vehiculo: e.target.value })}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
                 >
-                  <option value="Camioneta 4x4">Camioneta 4x4</option>
-                  <option value="Camión Aljibe">Camión Aljibe</option>
-                  <option value="Camión Tolva">Camión Tolva</option>
-                  <option value="Camión Pluma">Camión Pluma</option>
-                  <option value="Bus">Bus</option>
-                  <option value="Minibus">Minibus</option>
-                  <option value="Furgón">Furgón</option>
-                  <option value="Maquinaria Pesada">Maquinaria Pesada</option>
-                  <option value="Otro">Otro</option>
+                  {vehicleTypes.map((t) => (
+                    <option key={t.id} value={t.nombre}>
+                      {t.nombre}
+                    </option>
+                  ))}
+                  {vehicleTypes.length === 0 && (
+                    <option value="Camioneta 4x4">Camioneta 4x4</option>
+                  )}
                 </select>
               </div>
 
@@ -6870,21 +7098,37 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Vehículo *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700 uppercase">Tipo de Vehículo *</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVehicleTypeError("");
+                      setIsManageVehicleTypesModalOpen(true);
+                    }}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 hover:underline cursor-pointer"
+                  >
+                    <Settings className="h-3 w-3" />
+                    <span>Gestionar Tipos</span>
+                  </button>
+                </div>
                 <select
                   value={vehicleFormData.tipo_vehiculo}
                   onChange={(e) => setVehicleFormData({ ...vehicleFormData, tipo_vehiculo: e.target.value })}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
                 >
-                  <option value="Camioneta 4x4">Camioneta 4x4</option>
-                  <option value="Camión Aljibe">Camión Aljibe</option>
-                  <option value="Camión Tolva">Camión Tolva</option>
-                  <option value="Camión Pluma">Camión Pluma</option>
-                  <option value="Bus">Bus</option>
-                  <option value="Minibus">Minibus</option>
-                  <option value="Furgón">Furgón</option>
-                  <option value="Maquinaria Pesada">Maquinaria Pesada</option>
-                  <option value="Otro">Otro</option>
+                  {vehicleTypes.map((t) => (
+                    <option key={t.id} value={t.nombre}>
+                      {t.nombre}
+                    </option>
+                  ))}
+                  {/* Keep current value if not in list yet */}
+                  {vehicleFormData.tipo_vehiculo &&
+                    !vehicleTypes.some((t) => t.nombre === vehicleFormData.tipo_vehiculo) && (
+                      <option value={vehicleFormData.tipo_vehiculo}>
+                        {vehicleFormData.tipo_vehiculo}
+                      </option>
+                    )}
                 </select>
               </div>
 
@@ -6954,6 +7198,206 @@ ${filesToDownload.map((f, i) => `${i + 1}. ${f.name}`).join('\n')}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MANAGE VEHICLE TYPES MODAL */}
+      {isManageVehicleTypesModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden font-sans flex flex-col max-h-[90vh]">
+            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <Truck className="h-5 w-5 text-blue-400" />
+                <h3 className="font-bold text-lg">Tipos de Vehículo</h3>
+              </div>
+              <button
+                onClick={() => {
+                  setIsManageVehicleTypesModalOpen(false);
+                  setEditingVehicleType(null);
+                  setVehicleTypeError("");
+                }}
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-5 text-slate-700">
+              <p className="text-xs text-slate-500">
+                Administra las clasificaciones de vehículos en el sistema. Puedes agregar nuevos tipos, renombrarlos o eliminarlos.
+              </p>
+
+              {vehicleTypeError && (
+                <div className="bg-red-50 text-red-700 p-3 rounded-xl border border-red-200 text-xs flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+                    <span>{vehicleTypeError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setVehicleTypeError("")}
+                    className="text-red-400 hover:text-red-600 font-bold ml-2"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              {/* Add New Type Form */}
+              <form onSubmit={handleCreateVehicleType} className="flex gap-2">
+                <input
+                  type="text"
+                  value={newVehicleTypeName}
+                  onChange={(e) => setNewVehicleTypeName(e.target.value)}
+                  placeholder="Nuevo tipo (ej: Camión Grúa, Tolva...)"
+                  className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 text-sm focus:border-blue-500 focus:outline-none"
+                  disabled={savingVehicleType}
+                />
+                <button
+                  type="submit"
+                  disabled={savingVehicleType || !newVehicleTypeName.trim()}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>{savingVehicleType ? "Guardando..." : "Agregar"}</span>
+                </button>
+              </form>
+
+              {/* Types List */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                <div className="bg-slate-50 px-4 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+                  <span>Tipos Registrados ({vehicleTypes.length})</span>
+                  <span>Vehículos Asociados</span>
+                </div>
+
+                {loadingVehicleTypes ? (
+                  <div className="p-6 text-center text-sm text-slate-400">
+                    Cargando tipos de vehículo...
+                  </div>
+                ) : vehicleTypes.length === 0 ? (
+                  <div className="p-6 text-center text-sm text-slate-400">
+                    No hay tipos registrados.
+                  </div>
+                ) : (
+                  vehicleTypes.map((type) => {
+                    const usageCount = vehicles.filter(
+                      (v) => (v.tipo_vehiculo || "").toLowerCase() === type.nombre.toLowerCase()
+                    ).length;
+                    const isEditing = editingVehicleType?.id === type.id;
+
+                    return (
+                      <div
+                        key={type.id}
+                        className="px-4 py-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors"
+                      >
+                        {isEditing ? (
+                          <div className="flex items-center gap-2 flex-1">
+                            <input
+                              type="text"
+                              value={editingVehicleType.nombre}
+                              onChange={(e) =>
+                                setEditingVehicleType({
+                                  ...editingVehicleType,
+                                  nombre: e.target.value,
+                                })
+                              }
+                              autoFocus
+                              className="flex-1 border border-blue-400 rounded-lg px-2.5 py-1 text-sm text-slate-800 focus:outline-none"
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleUpdateVehicleType(
+                                    type.id,
+                                    type.nombre,
+                                    editingVehicleType.nombre
+                                  );
+                                } else if (e.key === "Escape") {
+                                  setEditingVehicleType(null);
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleUpdateVehicleType(
+                                  type.id,
+                                  type.nombre,
+                                  editingVehicleType.nombre
+                                )
+                              }
+                              disabled={savingVehicleType}
+                              className="p-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                              title="Guardar"
+                            >
+                              <Check className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingVehicleType(null)}
+                              className="p-1.5 rounded-lg bg-slate-200 text-slate-600 hover:bg-slate-300 transition-colors"
+                              title="Cancelar"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span className="h-2 w-2 rounded-full bg-blue-500 shrink-0" />
+                              <span className="text-sm font-semibold text-slate-800 truncate">
+                                {type.nombre}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-3 shrink-0">
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">
+                                {usageCount} {usageCount === 1 ? "vehículo" : "vehículos"}
+                              </span>
+
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEditingVehicleType({ id: type.id, nombre: type.nombre })
+                                  }
+                                  className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                  title="Editar nombre"
+                                >
+                                  <Edit2 className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteVehicleType(type.id, type.nombre)}
+                                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                  title="Eliminar tipo"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="bg-slate-50 px-6 py-3 border-t border-slate-100 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsManageVehicleTypesModalOpen(false);
+                  setEditingVehicleType(null);
+                  setVehicleTypeError("");
+                }}
+                className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}
